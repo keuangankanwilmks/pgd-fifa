@@ -1,0 +1,125 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - nik: string (required) - Employee ID
+//   - name: string (required) - Full name
+//   - role: string (required, admin|user) - Role
+//   - status: string (required, active|inactive) - Status
+//   - email: string (optional) - User email
+//   - uid: string (optional) - Auth UID
+//
+// Collection: cabang
+// Document ID: {cabangId}
+// Fields:
+//   - nama: string (required) - Branch name
+//
+// Collection: norek_mapping
+// Document ID: {mappingId}
+// Fields:
+//   - keterangan: string (required) - Keyword
+//   - namaCabang: string (required) - Branch name
+//
+// Collection: supporting_apps
+// Document ID: {appId}
+// Fields:
+//   - label: string (required) - Display name
+//   - url: string (required, format: uri) - App URL
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    match /cabang/{cabangId} {
+      allow get, list: if request.auth != null;
+      allow write: if isAdmin();
+    }
+
+    match /norek_mapping/{mappingId} {
+      allow get, list: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        ( request.auth.token.email == "keuangan.kanwilmks@gmail.com" ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') );
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && (email.size() == 0 || email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.nik is string && data.nik.size() > 0 && data.nik.size() < 50 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.role in ['admin', 'user'] &&
+             data.status in ['active', 'inactive'] &&
+             (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
+             (!('uid' in data) || (data.uid is string && data.uid.size() > 0));
+    }
+
+    function isValidSupportingApp(data) {
+      return data.label is string && data.label.size() > 0 && data.label.size() < 100 &&
+             data.url is string && data.url.size() > 0 && data.url.size() < 500 &&
+             data.url.matches("^https?://.*");
+    }
+
+    function isValidCabang(data) {
+      return data.nama is string && data.nama.size() > 0 && data.nama.size() < 100;
+    }
+
+    function isValidNoRekMapping(data) {
+      return data.keterangan is string && data.keterangan.size() > 0 && data.keterangan.size() < 200 &&
+             data.namaCabang is string && data.namaCabang.size() > 0 && data.namaCabang.size() < 100;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      // Allow unauthenticated users to query by NIK for login purposes
+      allow list: if request.auth == null && request.query.limit == 1;
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ( (isOwner(userId) && request.resource.data.role == 'user') || isAdmin() );
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ( (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin() );
+      allow delete: if isAdmin();
+    }
+
+    match /supporting_apps/{appId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidSupportingApp(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

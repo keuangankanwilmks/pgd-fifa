@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Application user profile",
+      "type": "object",
+      "properties": {
+        "nik": { "type": "string", "description": "Nomor Induk Karyawan" },
+        "name": { "type": "string", "description": "Full name" },
+        "password": { "type": "string", "description": "Hashed or plain password (optional for Google users)" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" },
+        "status": { "type": "string", "enum": ["active", "inactive"], "description": "Account status" },
+        "email": { "type": "string", "description": "User email address" },
+        "uid": { "type": "string", "description": "Firebase Auth UID" }
+      },
+      "required": ["nik", "name", "role", "status"]
+    },
+    "SupportingApp": {
+      "title": "Supporting App",
+      "description": "External application link",
+      "type": "object",
+      "properties": {
+        "label": { "type": "string", "description": "Display name" },
+        "url": { "type": "string", "format": "uri", "description": "Application URL" },
+        "logo": { "type": "string", "description": "Base64 or URL of application logo" }
+      },
+      "required": ["label", "url"]
+    },
+    "NoRekMapping": {
+      "title": "NoRek Mapping",
+      "description": "Mapping from transaction description keywords to branch names",
+      "type": "object",
+      "properties": {
+        "keterangan": { "type": "string", "description": "Keyword found in description" },
+        "namaCabang": { "type": "string", "description": "Target branch name" }
+      },
+      "required": ["keterangan", "namaCabang"]
+    },
+    "Cabang": {
+      "title": "Cabang",
+      "description": "List of branches",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string", "description": "Branch name" }
+      },
+      "required": ["nama"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Collection of users"
+    },
+    "supporting_apps/{appId}": {
+      "schema": "SupportingApp",
+      "description": "Collection of external supporting applications"
+    },
+    "norek_mapping/{mappingId}": {
+      "schema": "NoRekMapping",
+      "description": "Collection of account number to branch mappings"
+    },
+    "cabang/{cabangId}": {
+      "schema": "Cabang",
+      "description": "Collection of branches"
+    }
+  }
+}

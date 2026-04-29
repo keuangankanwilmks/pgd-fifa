@@ -1,0 +1,129 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: {userId}
+// Fields:
+//   - nik: string (required) - Employee ID
+//   - name: string (required) - Full name
+//   - role: string (required, admin|user) - Role
+//   - status: string (required, active|inactive) - Status
+//   - email: string (optional) - User email
+//   - uid: string (optional) - Auth UID
+//
+// Collection: cabang
+// Document ID: {cabangId}
+// Fields:
+//   - nama: string (required) - Branch name
+//
+// Collection: plafon
+// Document ID: {plafonId}
+// Fields:
+//   - namaCabang: string (required) - Branch name
+//   - nominal: number (required) - Plafond amount
+//
+// Collection: norek_mapping
+// Document ID: {mappingId}
+// Fields:
+//   - keterangan: string (required) - Keyword
+//   - namaCabang: string (required) - Branch name
+//
+// Collection: supporting_apps
+// Document ID: {appId}
+// Fields:
+//   - label: string (required) - Display name
+//   - url: string (required, format: uri) - App URL
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() &&
+        ( request.auth.token.email == "keuangan.kanwilmks@gmail.com" ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') );
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && (email.size() == 0 || email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['nik', 'name', 'role', 'status', 'email', 'uid', 'password']) &&
+             data.nik is string && data.nik.size() > 0 &&
+             data.name is string && data.name.size() > 0 &&
+             data.role in ['admin', 'user'] &&
+             data.status in ['active', 'inactive'];
+    }
+
+    function isValidPlafon(data) {
+      return hasOnlyAllowedFields(['namaCabang', 'nominal']) &&
+             data.namaCabang is string && data.namaCabang.size() > 0 &&
+             data.nominal is number && data.nominal >= 0;
+    }
+
+    // Public Collections (Read-only for everyone, Write for Admin)
+    match /_connection_test_/{docId} {
+      allow read: if true;
+    }
+
+    match /cabang/{cabangId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /plafon/{plafonId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidPlafon(request.resource.data);
+    }
+
+    match /norek_mapping/{mappingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /supporting_apps/{appId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Private Collections
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isAuthenticated() && isOwner(resource.data.userId);
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      // Allow unauthenticated users to query by NIK for login purposes
+      allow list: if request.auth == null && request.query.limit == 1;
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ( (isOwner(userId) && request.resource.data.role == 'user') || isAdmin() );
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    ( (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin() );
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

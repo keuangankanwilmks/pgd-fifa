@@ -1,0 +1,7 @@
+{
+  "name": "FIFA (Financial Integrated Flow Application)",
+  "description": "Aplikasi keuangan dengan UI modern dan asisten suara.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

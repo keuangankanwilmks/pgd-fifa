@@ -1250,7 +1250,7 @@ function SummaryMoker({ currentUser }: { currentUser?: any }) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-visible">
         <div className="p-6 space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -1424,7 +1424,7 @@ function SummaryMoker({ currentUser }: { currentUser?: any }) {
               </button>
             )}
             {showData && (
-              <div className="relative">
+              <div className="relative z-50">
                 <button 
                   onClick={() => setIsExportOpen(!isExportOpen)}
                   className="flex items-center gap-2 px-5 py-2.5 bg-[#009B4F] text-white rounded-xl hover:bg-[#008543] transition-all shadow-lg shadow-[#009B4F]/20 text-xs font-bold cursor-pointer"
@@ -1433,7 +1433,7 @@ function SummaryMoker({ currentUser }: { currentUser?: any }) {
                   Export File
                 </button>
                 {isExportOpen && (
-                  <div className="absolute left-0 mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 z-50">
+                  <div className="absolute left-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 z-[100]">
                     <button
                       onClick={exportToExcel}
                       className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-emerald-50 hover:text-[#009B4F] transition-colors"

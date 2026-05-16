@@ -5,6 +5,7 @@ import { Logo } from './Logo';
 import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { getMenuItems } from '../constants/menuItems';
+import { ConfirmModal } from './ConfirmModal';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -17,6 +18,7 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUser, onLogout }: SidebarProps) {
   const [openSubMenus, setOpenSubMenus] = React.useState<Record<string, boolean>>({});
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = React.useState(false);
 
   const menuItems = getMenuItems(currentUser.role);
 
@@ -60,8 +62,9 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
   };
 
   return (
-    <div className={`bg-[#005245] text-emerald-50 w-64 flex-shrink-0 flex flex-col transition-all duration-300 ${isOpen ? 'ml-0' : '-ml-64'} shadow-xl z-20`}>
-      <div className="p-6 border-b border-[#004237] flex flex-col items-center">
+    <>
+      <div className={`bg-[#005245] text-emerald-50 w-64 flex-shrink-0 flex flex-col transition-all duration-300 ${isOpen ? 'ml-0' : '-ml-64'} shadow-xl z-20`}>
+        <div className="p-6 border-b border-[#004237] flex flex-col items-center">
         <Logo className="w-20 h-20" />
         <p className="mt-3 text-[9px] leading-tight text-white font-medium uppercase tracking-widest text-center">
           Financial Integrated Flow Application
@@ -154,7 +157,7 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
             </div>
           </div>
           <button 
-            onClick={onLogout}
+            onClick={() => setIsLogoutConfirmOpen(true)}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg text-sm font-medium transition-colors cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
@@ -167,6 +170,22 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
           </p>
         </div>
       </div>
-    </div>
+      </div>
+
+      <ConfirmModal
+        isOpen={isLogoutConfirmOpen}
+        title="Konfirmasi Keluar"
+        message="Apakah Anda yakin ingin keluar dari aplikasi?"
+        onCancel={() => setIsLogoutConfirmOpen(false)}
+        onConfirm={() => {
+          setIsLogoutConfirmOpen(false);
+          onLogout();
+        }}
+        confirmText="Ya"
+        cancelText="Tidak"
+        loadingText="Keluar..."
+        variant="primary"
+      />
+    </>
   );
 }

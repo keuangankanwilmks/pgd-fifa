@@ -8,6 +8,10 @@ interface ConfirmModalProps {
   onConfirm: () => void;
   onCancel: () => void;
   isLoading?: boolean;
+  confirmText?: string;
+  cancelText?: string;
+  loadingText?: string;
+  variant?: 'danger' | 'primary';
 }
 
 export function ConfirmModal({ 
@@ -16,7 +20,11 @@ export function ConfirmModal({
   message, 
   onConfirm, 
   onCancel, 
-  isLoading = false 
+  isLoading = false,
+  confirmText = 'Hapus Data',
+  cancelText = 'Batal',
+  loadingText = 'Menghapus...',
+  variant = 'danger'
 }: ConfirmModalProps) {
   if (!isOpen) return null;
 
@@ -48,20 +56,22 @@ export function ConfirmModal({
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               disabled={isLoading}
             >
-              Batal
+              {cancelText}
             </button>
             <button
               onClick={onConfirm}
-              className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-2"
+              className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors flex items-center gap-2 ${
+                variant === 'primary' ? 'bg-[#009B4F] hover:bg-[#008543]' : 'bg-red-600 hover:bg-red-700'
+              }`}
               disabled={isLoading}
             >
               {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Menghapus...
+                  {loadingText}
                 </>
               ) : (
-                'Hapus Data'
+                confirmText
               )}
             </button>
           </div>

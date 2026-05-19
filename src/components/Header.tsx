@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Menu, Bell, Search, X, Check, Info, AlertTriangle, AlertCircle, Trash2 } from 'lucide-react';
 import { User } from '../App';
-import { getMenuItems, flattenMenuItems } from '../constants/menuItems';
+import { getMenuItems, flattenMenuItems, type RoleAccessMap } from '../constants/menuItems';
 import { useNotifications } from '../contexts/NotificationContext';
 
 interface HeaderProps {
@@ -9,9 +9,10 @@ interface HeaderProps {
   setSidebarOpen: (isOpen: boolean) => void;
   currentUser: User;
   setActiveTab: (tab: string) => void;
+  roleAccessMap: RoleAccessMap;
 }
 
-export function Header({ sidebarOpen, setSidebarOpen, currentUser, setActiveTab }: HeaderProps) {
+export function Header({ sidebarOpen, setSidebarOpen, currentUser, setActiveTab, roleAccessMap }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -20,7 +21,7 @@ export function Header({ sidebarOpen, setSidebarOpen, currentUser, setActiveTab 
   const searchRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
 
-  const menuItems = getMenuItems(currentUser.role);
+  const menuItems = getMenuItems(currentUser.role, roleAccessMap);
   const flatMenus = flattenMenuItems(menuItems);
 
   const filteredMenus = flatMenus.filter(menu => 

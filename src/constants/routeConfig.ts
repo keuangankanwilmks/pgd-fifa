@@ -14,6 +14,7 @@ export const TAB_TO_PATH: Record<string, string> = {
   'user-management': '/settings/user-management',
   'setting-supporting-apps': '/settings/supporting-apps',
   'setting-general': '/settings/manajemen-data',
+  'setting-template-blast': '/settings/template-blast',
 };
 
 export const PATH_TO_TAB: Record<string, string> = Object.entries(TAB_TO_PATH).reduce((acc, [tab, path]) => {

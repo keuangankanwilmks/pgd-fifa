@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Edit2, Globe, Link as LinkIcon, Loader2, Database, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
+import { Save, Plus, Trash2, Edit2, Globe, Link as LinkIcon, Loader2, Database, RefreshCw, ChevronUp, ChevronDown, X, Table2, Columns3, Mail, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db, handleFirestoreError, OperationType, auth } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { cabangService } from '../services/cabangService';
-import { norekService } from '../services/norekService';
-import { plafonService } from '../services/plafonService';
+import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { blastTemplateService, defaultBlastEmailTemplate } from '../services/blastTemplateService';
 
 interface AppLink {
   id: string;
@@ -16,8 +15,23 @@ interface AppLink {
 }
 
 interface SettingsProps {
-  type: 'supporting-apps' | 'general';
+  type: 'supporting-apps' | 'general' | 'template-blast';
 }
+
+interface DataEditorConfig {
+  collectionName: 'cabang' | 'norek_mapping';
+  title: string;
+  description: string;
+  defaultColumns: string[];
+}
+
+interface DataEditorRow {
+  id: string;
+  isNew?: boolean;
+  [key: string]: any;
+}
+
+type EditorConfirmAction = 'saveAll' | 'deleteRow' | null;
 
 export function Settings({ type }: SettingsProps) {
   const [apps, setApps] = useState<AppLink[]>([]);
@@ -28,8 +42,26 @@ export function Settings({ type }: SettingsProps) {
   const [newApp, setNewApp] = useState({ label: '', url: '', logo: '' });
   const [isDeleting, setIsDeleting] = useState(false);
   const [appToDelete, setAppToDelete] = useState<string | null>(null);
+  const [dataEditorConfig, setDataEditorConfig] = useState<DataEditorConfig | null>(null);
+  const [dataEditorRows, setDataEditorRows] = useState<DataEditorRow[]>([]);
+  const [dataEditorColumns, setDataEditorColumns] = useState<string[]>([]);
+  const [newEditorField, setNewEditorField] = useState('');
+  const [isDataEditorLoading, setIsDataEditorLoading] = useState(false);
+  const [savingEditorRowId, setSavingEditorRowId] = useState<string | null>(null);
+  const [isEditorConfirmOpen, setIsEditorConfirmOpen] = useState(false);
+  const [editorConfirmAction, setEditorConfirmAction] = useState<EditorConfirmAction>(null);
+  const [editorRowToDelete, setEditorRowToDelete] = useState<DataEditorRow | null>(null);
+  const [isSavingAllEditorRows, setIsSavingAllEditorRows] = useState(false);
+  const [blastTemplate, setBlastTemplate] = useState(defaultBlastEmailTemplate);
+  const [isBlastTemplateLoading, setIsBlastTemplateLoading] = useState(false);
+  const [isBlastTemplateSaving, setIsBlastTemplateSaving] = useState(false);
 
   useEffect(() => {
+    if (type !== 'supporting-apps') {
+      setIsLoading(false);
+      return;
+    }
+
     const path = 'supporting_apps';
     const unsub = onSnapshot(collection(db, path), (snapshot) => {
       const data = snapshot.docs.map(doc => ({
@@ -45,7 +77,56 @@ export function Settings({ type }: SettingsProps) {
     });
 
     return () => unsub();
-  }, []);
+  }, [type]);
+
+  useEffect(() => {
+    if (type !== 'template-blast') return;
+
+    setIsBlastTemplateLoading(true);
+    blastTemplateService.getTemplate()
+      .then(setBlastTemplate)
+      .catch(error => {
+        console.error('Blast template load error:', error);
+        toast.error('Gagal memuat template blast');
+      })
+      .finally(() => setIsBlastTemplateLoading(false));
+  }, [type]);
+
+  const renderBlastTemplatePreview = () => {
+    const detailRows = `
+      <tr style="border-bottom: 1px solid #e5e7eb;">
+        <td style="padding: 10px;">1</td>
+        <td style="padding: 10px; font-weight: 700;">BRI</td>
+        <td style="padding: 10px; text-align: right; font-weight: 700; color: #1d4ed8;">Rp 12.500.000</td>
+        <td style="padding: 10px;">Contoh transaksi Hutang Operasional Lain<div style="margin-top: 4px; color: #dc2626; font-size: 12px;">Status: Belum</div></td>
+      </tr>
+    `;
+
+    return blastTemplate
+      .replaceAll('{{cabang}}', 'CP AMBON')
+      .replaceAll('{{tanggal}}', '2026-05-19')
+      .replaceAll('{{jumlahTransaksi}}', '1')
+      .replaceAll('{{totalNominal}}', 'Rp 12.500.000')
+      .replaceAll('{{detailRows}}', detailRows);
+  };
+
+  const saveBlastTemplate = async () => {
+    if (!blastTemplate.trim()) {
+      toast.error('Template tidak boleh kosong');
+      return;
+    }
+
+    setIsBlastTemplateSaving(true);
+    try {
+      await blastTemplateService.saveTemplate(blastTemplate);
+      toast.success('Template blast berhasil disimpan');
+    } catch (error) {
+      console.error('Blast template save error:', error);
+      toast.error('Gagal menyimpan template blast');
+    } finally {
+      setIsBlastTemplateSaving(false);
+    }
+  };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean) => {
     const file = e.target.files?.[0];
@@ -139,45 +220,195 @@ export function Settings({ type }: SettingsProps) {
     }
   };
 
-  const [isSeeding, setIsSeeding] = useState(false);
+  const collectColumns = (rows: DataEditorRow[], defaultColumns: string[]) => {
+    const dynamicColumns = rows.flatMap(row => Object.keys(row).filter(key => key !== 'id' && key !== 'isNew'));
+    return Array.from(new Set([...defaultColumns, ...dynamicColumns]));
+  };
 
-  const handleSeedCabang = async () => {
-    setIsSeeding(true);
+  const openDataEditor = async (config: DataEditorConfig) => {
+    setDataEditorConfig(config);
+    setIsDataEditorLoading(true);
+    setDataEditorRows([]);
+    setDataEditorColumns(config.defaultColumns);
+    setNewEditorField('');
+
     try {
-      await cabangService.seed();
-      toast.success('Data Cabang berhasil di-seed ke Firebase');
+      const snapshot = await getDocs(collection(db, config.collectionName));
+      const rows = snapshot.docs
+        .map(item => ({ id: item.id, ...item.data() } as DataEditorRow))
+        .sort((a, b) => String(a.nama || a.namaCabang || a.keterangan || a.id).localeCompare(String(b.nama || b.namaCabang || b.keterangan || b.id)));
+
+      setDataEditorRows(rows);
+      setDataEditorColumns(collectColumns(rows, config.defaultColumns));
     } catch (error) {
-      console.error('Seed error:', error);
-      toast.error('Gagal melakukan seeding data cabang');
+      console.error('Data editor load error:', error);
+      handleFirestoreError(error, OperationType.LIST, config.collectionName);
     } finally {
-      setIsSeeding(false);
+      setIsDataEditorLoading(false);
     }
   };
 
-  const handleSeedNorek = async () => {
-    setIsSeeding(true);
+  const closeDataEditor = () => {
+    setDataEditorConfig(null);
+    setDataEditorRows([]);
+    setDataEditorColumns([]);
+    setNewEditorField('');
+    setSavingEditorRowId(null);
+    setIsEditorConfirmOpen(false);
+    setEditorConfirmAction(null);
+    setEditorRowToDelete(null);
+  };
+
+  const buildEditorPayload = (row: DataEditorRow) => {
+    return dataEditorColumns.reduce<Record<string, any>>((payload, column) => {
+      payload[column] = row[column] ?? '';
+      return payload;
+    }, {});
+  };
+
+  const saveEditorRow = async (row: DataEditorRow, silent = false) => {
+    if (!dataEditorConfig) return;
+    const currentRow = dataEditorRows.find(item => item.id === row.id) || row;
+    if (!currentRow.id.trim()) {
+      toast.error('ID dokumen tidak boleh kosong');
+      return;
+    }
+
+    setSavingEditorRowId(currentRow.id);
     try {
-      await norekService.seed();
-      toast.success('Data Nomor Rekening berhasil di-seed ke Firebase');
+      await setDoc(doc(db, dataEditorConfig.collectionName, currentRow.id), buildEditorPayload(currentRow), { merge: true });
+      setDataEditorRows(prev => prev.map(item => item.id === currentRow.id ? { ...item, isNew: false } : item));
+      if (!silent) toast.success('Data berhasil diperbarui');
     } catch (error) {
-      console.error('Seed error:', error);
-      toast.error('Gagal melakukan seeding data nomor rekening');
+      console.error('Data editor save error:', error);
+      handleFirestoreError(error, OperationType.UPDATE, `${dataEditorConfig.collectionName}/${currentRow.id}`);
     } finally {
-      setIsSeeding(false);
+      setSavingEditorRowId(null);
     }
   };
 
-  const handleSeedPlafon = async () => {
-    setIsSeeding(true);
-    try {
-      await plafonService.seed();
-      toast.success('Data Plafon Cabang berhasil di-seed ke Firebase');
-    } catch (error) {
-      console.error('Seed error:', error);
-      toast.error('Gagal melakukan seeding data plafon');
-    } finally {
-      setIsSeeding(false);
+  const updateEditorCell = (rowId: string, field: string, value: string) => {
+    setDataEditorRows(prev => prev.map(row => row.id === rowId ? { ...row, [field]: value } : row));
+  };
+
+  const createBlankEditorRow = (index = 0) => {
+    const id = `${dataEditorConfig?.collectionName || 'row'}_${Date.now()}_${index}`;
+    return dataEditorColumns.reduce<DataEditorRow>((row, column) => {
+      row[column] = '';
+      return row;
+    }, { id, isNew: true });
+  };
+
+  const handleEditorPaste = (event: React.ClipboardEvent<HTMLInputElement>, rowIndex: number, columnIndex: number) => {
+    const pastedText = event.clipboardData.getData('text');
+    if (!pastedText.includes('\t') && !pastedText.includes('\n')) return;
+
+    event.preventDefault();
+    const rows = pastedText.replace(/\r/g, '').split('\n').filter(row => row.trim() !== '').map(row => row.split('\t'));
+
+    setDataEditorRows(prev => {
+      const next = [...prev];
+      while (next.length < rowIndex + rows.length) {
+        next.push(createBlankEditorRow(next.length));
+      }
+
+      rows.forEach((cells, rowOffset) => {
+        const targetIndex = rowIndex + rowOffset;
+        cells.forEach((cell, cellOffset) => {
+          const column = dataEditorColumns[columnIndex + cellOffset];
+          if (!column) return;
+          next[targetIndex] = {
+            ...next[targetIndex],
+            [column]: cell.trim(),
+          };
+        });
+      });
+
+      return next;
+    });
+  };
+
+  const addEditorColumn = () => {
+    if (!dataEditorConfig) return;
+    const field = newEditorField.trim();
+    if (!field) {
+      toast.error('Nama kolom belum diisi');
+      return;
     }
+    if (dataEditorColumns.includes(field)) {
+      toast.error('Kolom sudah tersedia');
+      return;
+    }
+
+    setDataEditorColumns(prev => [...prev, field]);
+    setDataEditorRows(prev => prev.map(row => ({ ...row, [field]: '' })));
+    setNewEditorField('');
+    toast.success(`Kolom ${field} ditambahkan. Klik Simpan Semua untuk menyimpan ke Firebase.`);
+  };
+
+  const addEditorRow = () => {
+    if (!dataEditorConfig) return;
+    setDataEditorRows(prev => [createBlankEditorRow(prev.length), ...prev]);
+  };
+
+  const handleEditorDeleteClick = (row: DataEditorRow) => {
+    setEditorRowToDelete(row);
+    setEditorConfirmAction('deleteRow');
+    setIsEditorConfirmOpen(true);
+  };
+
+  const deleteEditorRow = async (row: DataEditorRow) => {
+    if (!dataEditorConfig) return;
+    if (row.isNew) {
+      setDataEditorRows(prev => prev.filter(item => item.id !== row.id));
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, dataEditorConfig.collectionName, row.id));
+      setDataEditorRows(prev => prev.filter(item => item.id !== row.id));
+      toast.success('Data berhasil dihapus');
+    } catch (error) {
+      console.error('Data editor delete error:', error);
+      handleFirestoreError(error, OperationType.DELETE, `${dataEditorConfig.collectionName}/${row.id}`);
+    }
+  };
+
+  const handleSaveAllEditorRows = async () => {
+    if (!dataEditorConfig) return;
+
+    const rowsWithEmptyId = dataEditorRows.filter(row => !row.id.trim());
+    if (rowsWithEmptyId.length > 0) {
+      toast.error('Ada baris dengan Doc ID kosong');
+      return;
+    }
+
+    setIsSavingAllEditorRows(true);
+    try {
+      await Promise.all(dataEditorRows.map(row => (
+        setDoc(doc(db, dataEditorConfig.collectionName, row.id), buildEditorPayload(row), { merge: true })
+      )));
+      setDataEditorRows(prev => prev.map(row => ({ ...row, isNew: false })));
+      toast.success(`${dataEditorRows.length} data berhasil disimpan ke Firebase`);
+    } catch (error) {
+      console.error('Save all data editor error:', error);
+      handleFirestoreError(error, OperationType.UPDATE, dataEditorConfig.collectionName);
+    } finally {
+      setIsSavingAllEditorRows(false);
+    }
+  };
+
+  const confirmEditorAction = async () => {
+    if (editorConfirmAction === 'saveAll') {
+      await handleSaveAllEditorRows();
+    }
+    if (editorConfirmAction === 'deleteRow' && editorRowToDelete) {
+      await deleteEditorRow(editorRowToDelete);
+    }
+
+    setIsEditorConfirmOpen(false);
+    setEditorConfirmAction(null);
+    setEditorRowToDelete(null);
   };
 
   const handleMove = async (index: number, direction: 'up' | 'down') => {
@@ -203,6 +434,78 @@ export function Settings({ type }: SettingsProps) {
     }
   };
 
+  if (type === 'template-blast') {
+    return (
+      <div className="flex h-full min-h-0 flex-col space-y-6">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-emerald-50 p-2 text-[#009B4F]">
+                <Mail className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Template Blast</h2>
+                <p className="mt-1 max-w-3xl text-sm text-gray-500">
+                  Kelola template HTML untuk Preview Body Email pada Blast Email Hutang Operasional Lain.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setBlastTemplate(defaultBlastEmailTemplate)}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reset Default
+              </button>
+              <button
+                onClick={saveBlastTemplate}
+                disabled={isBlastTemplateSaving || isBlastTemplateLoading}
+                className="flex items-center gap-2 rounded-lg bg-[#009B4F] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#008543] disabled:opacity-50"
+              >
+                {isBlastTemplateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Simpan Template
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[1fr_0.9fr]">
+          <div className="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-sm font-black text-gray-800">Kode HTML Email</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                Placeholder tersedia: {'{{cabang}}'}, {'{{tanggal}}'}, {'{{jumlahTransaksi}}'}, {'{{totalNominal}}'}, {'{{detailRows}}'}.
+              </p>
+            </div>
+            {isBlastTemplateLoading ? (
+              <div className="flex flex-1 items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-[#009B4F]" />
+              </div>
+            ) : (
+              <textarea
+                value={blastTemplate}
+                onChange={(event) => setBlastTemplate(event.target.value)}
+                spellCheck={false}
+                className="min-h-0 flex-1 resize-none border-0 bg-gray-950 p-5 font-mono text-[11px] leading-relaxed text-emerald-100 outline-none"
+              />
+            )}
+          </div>
+
+          <div className="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-sm font-black text-gray-800">Preview Body Email</h3>
+              <p className="mt-1 text-xs text-gray-500">Preview menggunakan contoh data agar layout email bisa dicek sebelum disimpan.</p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
+              <div dangerouslySetInnerHTML={{ __html: renderBlastTemplatePreview() }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (type === 'general') {
     return (
       <div className="space-y-6">
@@ -221,49 +524,174 @@ export function Settings({ type }: SettingsProps) {
             <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
               <h3 className="font-semibold text-gray-800 mb-2">Data Cabang & Area</h3>
               <p className="text-sm text-gray-500 mb-4">
-                Sinkronisasi data master cabang dan area ke database Firebase. Gunakan ini jika data cabang di report tidak muncul atau perlu diperbarui.
+                Edit data master cabang, area, kode, dan field tambahan seperti email cabang langsung dari Firebase.
               </p>
               <button
-                onClick={handleSeedCabang}
-                disabled={isSeeding}
+                onClick={() => openDataEditor({
+                  collectionName: 'cabang',
+                  title: 'Edit Data Cabang',
+                  description: 'Data Firebase collection cabang',
+                  defaultColumns: ['nama', 'area', 'passionCode', 'sapCode', 'email'],
+                })}
                 className="flex items-center gap-2 px-4 py-2 bg-[#009B4F] text-white rounded-lg hover:bg-[#008543] transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isSeeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Seed Data Cabang
+                <Table2 className="w-4 h-4" />
+                Edit Data Cabang
               </button>
             </div>
 
             <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
               <h3 className="font-semibold text-gray-800 mb-2">Data Nomor Rekening</h3>
               <p className="text-sm text-gray-500 mb-4">
-                Sinkronisasi data master nomor rekening ke database Firebase. Berguna untuk pemetaan otomatis saat proses rekonsiliasi.
+                Edit mapping nomor rekening, nama cabang, dan field tambahan seperti jenis rekening langsung dari Firebase.
               </p>
               <button
-                onClick={handleSeedNorek}
-                disabled={isSeeding}
+                onClick={() => openDataEditor({
+                  collectionName: 'norek_mapping',
+                  title: 'Edit Data No Rekening',
+                  description: 'Data Firebase collection norek_mapping',
+                  defaultColumns: ['keterangan', 'namaCabang', 'jenisRekening'],
+                })}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isSeeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Seed Data Norek
-              </button>
-            </div>
-
-            <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
-              <h3 className="font-semibold text-gray-800 mb-2">Data Plafon Cabang</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Sinkronisasi data master plafon modal kerja ke database Firebase. Digunakan untuk perhitungan otomatis setoran/tambahan moker BNI.
-              </p>
-              <button
-                onClick={handleSeedPlafon}
-                disabled={isSeeding}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {isSeeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                Seed Data Plafon
+                <Table2 className="w-4 h-4" />
+                Edit Data No Rekening
               </button>
             </div>
           </div>
         </div>
+
+        {dataEditorConfig && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <div className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex flex-col justify-between gap-4 border-b border-gray-100 p-5 lg:flex-row lg:items-center">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800">{dataEditorConfig.title}</h3>
+                  <p className="text-xs text-gray-500">{dataEditorConfig.description}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={newEditorField}
+                      onChange={(event) => setNewEditorField(event.target.value)}
+                      className="h-9 w-44 rounded-lg border border-gray-200 px-3 text-xs outline-none focus:border-[#009B4F] focus:ring-2 focus:ring-[#009B4F]/20"
+                      placeholder="Nama kolom baru"
+                    />
+                    <button
+                      onClick={addEditorColumn}
+                      className="flex items-center gap-2 rounded-lg bg-gray-800 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-gray-900"
+                    >
+                      <Columns3 className="h-4 w-4" />
+                      Tambah Kolom
+                    </button>
+                  </div>
+                  <button
+                    onClick={addEditorRow}
+                    className="flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-blue-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Tambah Baris
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditorConfirmAction('saveAll');
+                      setIsEditorConfirmOpen(true);
+                    }}
+                    disabled={isSavingAllEditorRows}
+                    className="flex items-center gap-2 rounded-lg bg-[#009B4F] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#008543] disabled:opacity-50"
+                  >
+                    {isSavingAllEditorRows ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Simpan Semua
+                  </button>
+                  <button
+                    onClick={closeDataEditor}
+                    className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-auto bg-gray-50/40 p-4">
+                {isDataEditorLoading ? (
+                  <div className="flex h-64 items-center justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-[#009B4F]" />
+                  </div>
+                ) : (
+                  <table className="w-full min-w-[1000px] border-collapse bg-white text-xs">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-[#005245]">
+                        <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Doc ID</th>
+                        {dataEditorColumns.map(column => (
+                          <th key={column} className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">
+                            {column}
+                          </th>
+                        ))}
+                        <th className="w-24 border border-[#004237] px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dataEditorRows.map((row, rowIndex) => (
+                        <tr key={row.id} className="odd:bg-white even:bg-gray-50/70">
+                          <td className="border border-gray-200 px-3 py-1 font-mono text-[11px] text-gray-500">{row.id}</td>
+                          {dataEditorColumns.map((column, columnIndex) => (
+                            <td key={`${row.id}-${column}`} className="border border-gray-200 p-0">
+                              <input
+                                value={row[column] ?? ''}
+                                onChange={(event) => updateEditorCell(row.id, column, event.target.value)}
+                                onPaste={(event) => handleEditorPaste(event, rowIndex, columnIndex)}
+                                className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                              />
+                            </td>
+                          ))}
+                          <td className="border border-gray-200 px-2 py-1">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => saveEditorRow(row)}
+                                disabled={savingEditorRowId === row.id}
+                                className="rounded-lg bg-emerald-50 p-1.5 text-[#009B4F] transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                                title="Simpan"
+                              >
+                                {savingEditorRowId === row.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                onClick={() => handleEditorDeleteClick(row)}
+                                className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-50"
+                                title="Hapus"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <ConfirmModal
+          isOpen={isEditorConfirmOpen}
+          title={editorConfirmAction === 'saveAll' ? 'Konfirmasi Simpan Semua' : 'Konfirmasi Hapus Data'}
+          message={editorConfirmAction === 'saveAll'
+            ? `Apakah Anda yakin ingin menyimpan ${dataEditorRows.length} data ke Firebase?`
+            : 'Apakah Anda yakin ingin menghapus data ini dari Firebase? Tindakan ini tidak dapat dibatalkan.'
+          }
+          onConfirm={confirmEditorAction}
+          onCancel={() => {
+            setIsEditorConfirmOpen(false);
+            setEditorConfirmAction(null);
+            setEditorRowToDelete(null);
+          }}
+          confirmText="Ya"
+          cancelText="Tidak"
+          loadingText="Menyimpan..."
+          variant={editorConfirmAction === 'saveAll' ? 'primary' : 'danger'}
+          isLoading={isSavingAllEditorRows}
+        />
       </div>
     );
   }

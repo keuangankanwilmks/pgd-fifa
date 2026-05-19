@@ -7,6 +7,8 @@ export interface Cabang {
   area: string;
   passionCode?: string;
   sapCode?: string;
+  email?: string;
+  [key: string]: any;
 }
 
 const CABANG_DATA = [
@@ -119,10 +121,7 @@ export const cabangService = {
       }
       return snapshot.docs.map(doc => ({ 
         id: doc.id, 
-        nama: doc.data().nama,
-        area: doc.data().area,
-        passionCode: doc.data().passionCode,
-        sapCode: doc.data().sapCode
+        ...doc.data() as any
       }));
     } catch (error) {
       console.error('Error fetching cabang data:', error);

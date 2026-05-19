@@ -27,11 +27,12 @@ import { norekService } from './services/norekService';
 import { cabangService } from './services/cabangService';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { getPathFromTab, getTabFromPath } from './constants/routeConfig';
+import { isMenuAllowed, type RoleAccessMap } from './constants/menuItems';
 
 export interface User {
   nik: string;
   name: string;
-  role: 'admin' | 'user' | 'guest';
+  role: string;
   status: 'active' | 'inactive';
   password?: string;
   email?: string;
@@ -49,6 +50,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Menginisialisasi aplikasi...');
+  const [roleAccessMap, setRoleAccessMap] = useState<RoleAccessMap>({});
   const [rekonInitialData, setRekonInitialData] = useState<{
     bank: string;
     sistemData: any[];
@@ -63,6 +65,21 @@ export default function App() {
   const activeTab = getTabFromPath(location.pathname);
 
   useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'role_access'), (snapshot) => {
+      const nextMap = snapshot.docs.reduce<RoleAccessMap>((acc, item) => {
+        const data = item.data();
+        acc[item.id] = Array.isArray(data.menuIds) ? data.menuIds : [];
+        return acc;
+      }, {});
+      setRoleAccessMap(nextMap);
+    }, (error) => {
+      console.error('Role access listener error:', error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
     // Seed Firestore data if needed
     const seedData = async () => {
       try {
@@ -73,16 +90,8 @@ export default function App() {
       }
     };
 
-    let usersUnsub: (() => void) | null = null;
-
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setIsLoading(true);
-      
-      // Clean up previous users listener if any
-      if (usersUnsub) {
-        usersUnsub();
-        usersUnsub = null;
-      }
 
       if (firebaseUser) {
         setLoadingMessage('Memuat profil...');
@@ -108,17 +117,6 @@ export default function App() {
           
           setCurrentUser(userData);
 
-          // Only listen to all users if admin
-          if (userData.role === 'admin') {
-            usersUnsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-              const usersData = snapshot.docs.map(doc => doc.data() as User);
-              setUsers(usersData);
-            }, (error) => {
-              console.error('Users listener error:', error);
-              handleFirestoreError(error, OperationType.GET, 'users');
-            });
-          }
-
           // Seed data after auth and profile are ready
           seedData();
         } catch (error) {
@@ -132,15 +130,6 @@ export default function App() {
             status: 'active'
           };
           setCurrentUser(fallbackUser);
-          
-          if (fallbackUser.role === 'admin') {
-            usersUnsub = onSnapshot(collection(db, 'users'), (snapshot) => {
-              const usersData = snapshot.docs.map(doc => doc.data() as User);
-              setUsers(usersData);
-            }, (error) => {
-              console.error('Users listener error (fallback):', error);
-            });
-          }
         }
       } else {
         // Only clear currentUser if it's not a guest user
@@ -155,9 +144,25 @@ export default function App() {
 
     return () => {
       unsubscribe();
-      if (usersUnsub) usersUnsub();
     };
   }, []);
+
+  useEffect(() => {
+    if (!currentUser || !isMenuAllowed(currentUser.role, 'user-management', roleAccessMap)) {
+      setUsers([]);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const usersData = snapshot.docs.map(doc => doc.data() as User);
+      setUsers(usersData);
+    }, (error) => {
+      console.error('Users listener error:', error);
+      handleFirestoreError(error, OperationType.GET, 'users');
+    });
+
+    return () => unsubscribe();
+  }, [currentUser, roleAccessMap]);
 
   const handleLogin = (user: User) => {
     // Auth state change will handle the rest
@@ -225,6 +230,14 @@ export default function App() {
     navigate(`/rekonsiliasi-bank/${bank.toLowerCase()}/proses-rekon`);
   };
 
+  const canAccess = (tab: string) => (
+    currentUser ? isMenuAllowed(currentUser.role, tab, roleAccessMap) : false
+  );
+
+  const guardRoute = (tab: string, element: React.ReactElement) => (
+    canAccess(tab) ? element : <Navigate to="/" replace />
+  );
+
   if (!currentUser && location.pathname !== '/login') {
     return (
       <>
@@ -255,6 +268,7 @@ export default function App() {
           setActiveTab={handleTabChange} 
           currentUser={currentUser}
           onLogout={handleLogout}
+          roleAccessMap={roleAccessMap}
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <Header 
@@ -262,13 +276,14 @@ export default function App() {
             setSidebarOpen={setSidebarOpen} 
             currentUser={currentUser}
             setActiveTab={handleTabChange}
+            roleAccessMap={roleAccessMap}
           />
           <main className="flex-1 overflow-y-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard onAppClick={(id) => handleTabChange(`support-${id}`)} />} />
-              <Route path="/modal-kerja/proses-moker" element={<ProsesMoker />} />
-              <Route path="/modal-kerja/data-moker" element={<DataMoker currentUser={currentUser} />} />
-              <Route path="/rekonsiliasi-bank/bni/proses-rekon" element={
+              <Route path="/modal-kerja/proses-moker" element={guardRoute('proses-moker', <ProsesMoker />)} />
+              <Route path="/modal-kerja/data-moker" element={guardRoute('data-moker', <DataMoker currentUser={currentUser} />)} />
+              <Route path="/rekonsiliasi-bank/bni/proses-rekon" element={guardRoute('rekon-bni',
                 <RekonBNI 
                   bank="BNI"
                   initialData={rekonInitialData?.bank === 'BNI' ? rekonInitialData : null}
@@ -276,9 +291,9 @@ export default function App() {
                   setIsLoading={setIsLoading} 
                   setLoadingMessage={setLoadingMessage} 
                 />
-              } />
-              <Route path="/rekonsiliasi-bank/bni/data-rekon" element={<DataRekon bank="BNI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />} />
-              <Route path="/rekonsiliasi-bank/bri/proses-rekon" element={
+              )} />
+              <Route path="/rekonsiliasi-bank/bni/data-rekon" element={guardRoute('data-rekon-bni', <DataRekon bank="BNI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />)} />
+              <Route path="/rekonsiliasi-bank/bri/proses-rekon" element={guardRoute('rekon-bri',
                 <RekonBNI 
                   bank="BRI" 
                   initialData={rekonInitialData?.bank === 'BRI' ? rekonInitialData : null}
@@ -286,9 +301,9 @@ export default function App() {
                   setIsLoading={setIsLoading} 
                   setLoadingMessage={setLoadingMessage} 
                 />
-              } />
-              <Route path="/rekonsiliasi-bank/bri/data-rekon" element={<DataRekon bank="BRI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />} />
-              <Route path="/rekonsiliasi-bank/bsi/proses-rekon" element={
+              )} />
+              <Route path="/rekonsiliasi-bank/bri/data-rekon" element={guardRoute('data-rekon-bri', <DataRekon bank="BRI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />)} />
+              <Route path="/rekonsiliasi-bank/bsi/proses-rekon" element={guardRoute('rekon-bsi',
                 <RekonBNI 
                   bank="BSI" 
                   initialData={rekonInitialData?.bank === 'BSI' ? rekonInitialData : null}
@@ -296,21 +311,24 @@ export default function App() {
                   setIsLoading={setIsLoading} 
                   setLoadingMessage={setLoadingMessage} 
                 />
-              } />
-              <Route path="/rekonsiliasi-bank/bsi/data-rekon" element={<DataRekon bank="BSI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />} />
-              <Route path="/report" element={<Report currentUser={currentUser} />} />
-              <Route path="/hutang-operasional" element={<HutangOperasional />} />
+              )} />
+              <Route path="/rekonsiliasi-bank/bsi/data-rekon" element={guardRoute('data-rekon-bsi', <DataRekon bank="BSI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />)} />
+              <Route path="/report" element={guardRoute('report', <Report currentUser={currentUser} />)} />
+              <Route path="/hutang-operasional" element={guardRoute('hutang', <HutangOperasional />)} />
               <Route path="/supporting-app/:id" element={<SupportingAppView tabId={activeTab} />} />
-              
-              {currentUser.role === 'admin' && (
-                <>
-                  <Route path="/settings/supporting-apps" element={<Settings type="supporting-apps" />} />
-                  <Route path="/settings/manajemen-data" element={<Settings type="general" />} />
-                  <Route path="/settings/user-management" element={
-                    <UserManagement users={users} setUsers={setUsers} currentUser={currentUser} setIsLoading={setIsLoading} setLoadingMessage={setLoadingMessage} />
-                  } />
-                </>
-              )}
+              <Route path="/settings/supporting-apps" element={guardRoute('setting-supporting-apps', <Settings type="supporting-apps" />)} />
+              <Route path="/settings/manajemen-data" element={guardRoute('setting-general', <Settings type="general" />)} />
+              <Route path="/settings/template-blast" element={guardRoute('setting-template-blast', <Settings type="template-blast" />)} />
+              <Route path="/settings/user-management" element={guardRoute('user-management',
+                <UserManagement
+                  users={users}
+                  setUsers={setUsers}
+                  currentUser={currentUser}
+                  setIsLoading={setIsLoading}
+                  setLoadingMessage={setLoadingMessage}
+                  roleAccessMap={roleAccessMap}
+                />
+              )} />
               
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -320,4 +338,3 @@ export default function App() {
     </NotificationProvider>
   );
 }
-

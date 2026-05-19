@@ -2,8 +2,10 @@ import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, getDocs, setDoc, doc, query, where } from 'firebase/firestore';
 
 export interface NoRekMapping {
+  id?: string;
   keterangan: string;
   namaCabang: string;
+  [key: string]: any;
 }
 
 const NOREK_DATA = `AMBON 1,CP AMBON
@@ -200,11 +202,11 @@ export const norekService = {
           await this.seed();
           // Fetch again after seeding
           const updatedSnapshot = await getDocs(collection(db, path));
-          return updatedSnapshot.docs.map(doc => doc.data() as NoRekMapping);
+          return updatedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
         } catch (seedError) {
           console.warn('Failed to seed norek_mapping data (likely guest user), falling back to local data:', seedError);
           if (!snapshot.empty) {
-            return snapshot.docs.map(doc => doc.data() as NoRekMapping);
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
           }
           // Parse local data as fallback
           return NOREK_DATA.split('\n').map(line => {
@@ -213,7 +215,7 @@ export const norekService = {
           }).filter(item => item.keterangan && item.namaCabang);
         }
       }
-      return snapshot.docs.map(doc => doc.data() as NoRekMapping);
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
     } catch (error) {
       console.error('Error fetching norek_mapping data:', error);
       // Fallback to local data on any error

@@ -373,13 +373,13 @@ export function DataMoker({ currentUser }: DataMokerProps) {
               </div>
             </div>
             <div className="flex items-center gap-3">
-            <div className="flex bg-gray-100 p-1 rounded-xl">
+              <div className="relative">
                 <button 
                   onClick={() => setIsExportOpen(!isExportOpen)}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#009B4F] text-white rounded-xl hover:bg-[#008543] transition-all shadow-md shadow-[#009B4F]/10 text-xs font-bold cursor-pointer"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-[#009B4F] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#008543]"
                 >
                   <Download className="w-4 h-4" />
-                  Export File
+                  Export Data
                 </button>
                 {isExportOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50 animate-in fade-in slide-in-from-top-2">

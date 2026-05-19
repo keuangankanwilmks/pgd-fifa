@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   FileText,
   Landmark,
+  Mail,
   Plus,
   RefreshCw,
   Search,
@@ -25,6 +26,9 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { googleSheetsService } from '../services/googleSheetsService';
+import { cabangService, type Cabang } from '../services/cabangService';
+import { emailBlastService, type EmailQuotaInfo, type BlastEmailMessage } from '../services/emailBlastService';
+import { blastTemplateService, defaultBlastEmailTemplate } from '../services/blastTemplateService';
 import { useNotifications } from '../contexts/NotificationContext';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDropdown';
@@ -48,6 +52,14 @@ interface NewHutangRow {
   keterangan: string;
   status: string;
   tanggalSelesai: string;
+}
+
+interface BlastEmailGroup {
+  tanggal: string;
+  akunCr: string;
+  email: string;
+  rows: HutangRecord[];
+  totalNominal: number;
 }
 
 const sheetName = 'HutOpr';
@@ -85,6 +97,15 @@ const parseCurrencyValue = (value: unknown) => {
   return Number(normalized) || 0;
 };
 
+const normalizeText = (value: string) => value.trim().replace(/\s+/g, ' ').toUpperCase();
+const isStatusBelum = (status: string) => normalizeText(status || 'Belum') === 'BELUM';
+const escapeHtml = (value: unknown) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
 const toSheetRow = (row: NewHutangRow) => [
   row.tanggal,
   row.akunDb,
@@ -120,6 +141,15 @@ export function HutangOperasional() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newRows, setNewRows] = useState<NewHutangRow[]>(() => Array.from({ length: 10 }, createBlankRow));
   const [isAdding, setIsAdding] = useState(false);
+  const [cabangMaster, setCabangMaster] = useState<Cabang[]>([]);
+  const [isBlastOpen, setIsBlastOpen] = useState(false);
+  const [blastDate, setBlastDate] = useState('');
+  const [selectedBlastCabang, setSelectedBlastCabang] = useState('');
+  const [emailQuota, setEmailQuota] = useState<EmailQuotaInfo | null>(null);
+  const [isQuotaLoading, setIsQuotaLoading] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailTemplate, setEmailTemplate] = useState(defaultBlastEmailTemplate);
+  const [isEditingEmailTemplate, setIsEditingEmailTemplate] = useState(false);
   const { addNotification } = useNotifications();
 
   const fetchData = async () => {
@@ -160,6 +190,17 @@ export function HutangOperasional() {
 
   useEffect(() => {
     fetchData();
+    cabangService.getAll()
+      .then(setCabangMaster)
+      .catch(error => {
+        console.error('Error fetching cabang master:', error);
+        toast.error('Gagal memuat master cabang');
+      });
+    blastTemplateService.getTemplate()
+      .then(setEmailTemplate)
+      .catch(error => {
+        console.error('Error fetching blast email template:', error);
+      });
   }, []);
 
   const filteredData = useMemo(() => {
@@ -201,6 +242,67 @@ export function HutangOperasional() {
 
   const totalPages = itemsPerPage === 'all' ? 1 : Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
   const allPageRowsSelected = paginatedData.length > 0 && paginatedData.every(item => selectedRows.includes(item.rowIndex));
+  const validCabangNames = useMemo(() => new Set(cabangMaster.map(item => normalizeText(item.nama || ''))), [cabangMaster]);
+  const cabangByName = useMemo(() => {
+    return cabangMaster.reduce<Record<string, Cabang>>((acc, item) => {
+      acc[normalizeText(item.nama || '')] = item;
+      return acc;
+    }, {});
+  }, [cabangMaster]);
+  const blastEligibleData = useMemo(() => rawData.filter(item => isStatusBelum(item.status)), [rawData]);
+  const dateSummary = useMemo(() => {
+    const summary = blastEligibleData.reduce<Record<string, { tanggal: string; count: number; totalNominal: number }>>((acc, item) => {
+      if (!item.tanggal) return acc;
+      if (!acc[item.tanggal]) acc[item.tanggal] = { tanggal: item.tanggal, count: 0, totalNominal: 0 };
+      acc[item.tanggal].count += 1;
+      acc[item.tanggal].totalNominal += item.nominal;
+      return acc;
+    }, {});
+
+    return Object.values(summary).sort((a, b) => String(b.tanggal).localeCompare(String(a.tanggal)));
+  }, [blastEligibleData]);
+  const blastGroups = useMemo<BlastEmailGroup[]>(() => {
+    if (!blastDate) return [];
+
+    const grouped = blastEligibleData
+      .filter(item => item.tanggal === blastDate)
+      .reduce<Record<string, BlastEmailGroup>>((acc, item) => {
+        const key = item.akunCr || 'TANPA CABANG';
+        const cabang = cabangByName[normalizeText(key)];
+        if (!acc[key]) {
+          acc[key] = {
+            tanggal: item.tanggal,
+            akunCr: key,
+            email: String(cabang?.email || ''),
+            rows: [],
+            totalNominal: 0,
+          };
+        }
+        acc[key].rows.push(item);
+        acc[key].totalNominal += item.nominal;
+        return acc;
+      }, {});
+
+    return Object.values(grouped).sort((a, b) => a.akunCr.localeCompare(b.akunCr));
+  }, [blastEligibleData, blastDate, cabangByName]);
+  const selectedBlastGroup = blastGroups.find(group => group.akunCr === selectedBlastCabang) || blastGroups[0];
+
+  useEffect(() => {
+    setSelectedBlastCabang(blastGroups[0]?.akunCr || '');
+  }, [blastDate, blastGroups]);
+
+  useEffect(() => {
+    if (!isBlastOpen) return;
+
+    setIsQuotaLoading(true);
+    emailBlastService.getQuota()
+      .then(setEmailQuota)
+      .catch(error => {
+        console.error('Email quota error:', error);
+        setEmailQuota(null);
+      })
+      .finally(() => setIsQuotaLoading(false));
+  }, [isBlastOpen]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -455,6 +557,12 @@ export function HutangOperasional() {
       return;
     }
 
+    const invalidCabangIndex = filledRows.findIndex(row => isInvalidCabangInput(row.akunCr));
+    if (invalidCabangIndex !== -1) {
+      toast.error(`AKUN (Cr) pada baris ${invalidCabangIndex + 1} tidak sesuai master cabang`);
+      return;
+    }
+
     setIsAdding(true);
     try {
       await googleSheetsService.appendData(spreadsheetId, `${sheetName}!A1`, filledRows.map(toSheetRow));
@@ -468,6 +576,99 @@ export function HutangOperasional() {
       toast.error(`Gagal menambah data: ${error.message}`);
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const isInvalidCabangInput = (value: string) => {
+    if (!value.trim()) return false;
+    return !validCabangNames.has(normalizeText(value));
+  };
+
+  const buildEmailDetailRows = (group: BlastEmailGroup) => group.rows.map((item, index) => `
+    <tr style="border-bottom: 1px solid #e5e7eb;">
+      <td style="padding: 10px; vertical-align: top;">${index + 1}</td>
+      <td style="padding: 10px; vertical-align: top; font-weight: 700;">${escapeHtml(item.akunDb)}</td>
+      <td style="padding: 10px; vertical-align: top; text-align: right; font-weight: 700; color: #1d4ed8;">${escapeHtml(formatCurrency(item.nominal))}</td>
+      <td style="padding: 10px; vertical-align: top;">
+        <div>${escapeHtml(item.keterangan || '-')}</div>
+        <div style="margin-top: 4px; color: #dc2626; font-size: 12px;">Status: ${escapeHtml(item.status || '-')}</div>
+      </td>
+    </tr>
+  `).join('');
+
+  const renderEmailTemplate = (group: BlastEmailGroup) => emailTemplate
+    .replaceAll('{{cabang}}', escapeHtml(group.akunCr))
+    .replaceAll('{{tanggal}}', escapeHtml(group.tanggal))
+    .replaceAll('{{jumlahTransaksi}}', String(group.rows.length))
+    .replaceAll('{{totalNominal}}', escapeHtml(formatCurrency(group.totalNominal)))
+    .replaceAll('{{detailRows}}', buildEmailDetailRows(group));
+
+  const buildEmailPlainBody = (group: BlastEmailGroup) => {
+    const details = group.rows.map((item, index) => (
+      `${index + 1}. AKUN (Db): ${item.akunDb}\n` +
+      `   Nominal: ${formatCurrency(item.nominal)}\n` +
+      `   Keterangan: ${item.keterangan || '-'}\n` +
+      `   Status: ${item.status || '-'}`
+    )).join('\n\n');
+
+    return [
+      `Yth. Pimpinan/Tim Cabang ${group.akunCr},`,
+      '',
+      `Berikut kami sampaikan informasi Hutang Operasional Lain berstatus Belum tanggal ${group.tanggal}.`,
+      '',
+      `Jumlah transaksi: ${group.rows.length}`,
+      `Total nominal: ${formatCurrency(group.totalNominal)}`,
+      '',
+      'Rincian transaksi:',
+      details,
+      '',
+      'Mohon dilakukan pengecekan dan tindak lanjut sesuai ketentuan yang berlaku.',
+      '',
+      'Terima kasih.',
+      '',
+      'Tim Keuangan Kanwil VI',
+      'keuangan.kanwilmks@gmail.com',
+    ].join('\n');
+  };
+
+  const handleSendBlastEmail = async () => {
+    if (!blastDate) {
+      toast.error('Pilih satu tanggal terlebih dahulu');
+      return;
+    }
+
+    const groupsWithEmail = blastGroups.filter(group => group.email);
+    if (groupsWithEmail.length === 0) {
+      toast.error('Tidak ada email cabang pada data terpilih');
+      return;
+    }
+
+    const messages: BlastEmailMessage[] = groupsWithEmail.map(group => ({
+      to: group.email,
+      subject: `Hutang Operasional Lain ${group.akunCr} - ${group.tanggal}`,
+      plainBody: buildEmailPlainBody(group),
+      htmlBody: renderEmailTemplate(group),
+      cabang: group.akunCr,
+      tanggal: group.tanggal,
+      totalNominal: group.totalNominal,
+      totalTransaksi: group.rows.length,
+    }));
+
+    const skipped = blastGroups.length - groupsWithEmail.length;
+    const loadingToast = toast.loading(`Mengirim ${messages.length} email...`);
+    setIsSendingEmail(true);
+    try {
+      const result = await emailBlastService.sendEmails(messages);
+      setEmailQuota({
+        remainingDailyQuota: typeof result.remainingDailyQuota === 'number' ? result.remainingDailyQuota : emailQuota?.remainingDailyQuota ?? null,
+        sentToday: Number(result.sentToday || (emailQuota?.sentToday || 0) + Number(result.sent || messages.length)),
+      });
+      toast.success(`${Number(result.sent || messages.length)} email berhasil dikirim${skipped > 0 ? `, ${skipped} cabang belum memiliki email` : ''}`, { id: loadingToast });
+    } catch (error: any) {
+      console.error('Blast email error:', error);
+      toast.error(`Gagal mengirim email: ${error.message}`, { id: loadingToast });
+    } finally {
+      setIsSendingEmail(false);
     }
   };
 
@@ -487,15 +688,6 @@ export function HutangOperasional() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {selectedRows.length > 0 && (
-                <button
-                  onClick={handleBulkDelete}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-red-600/10 transition-all hover:bg-red-700"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Hapus ({selectedRows.length})
-                </button>
-              )}
               <button
                 onClick={openAddModal}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/10 transition-all hover:bg-blue-700"
@@ -503,10 +695,17 @@ export function HutangOperasional() {
                 <Plus className="h-4 w-4" />
                 Tambah Data
               </button>
+              <button
+                onClick={() => setIsBlastOpen(true)}
+                className="flex cursor-pointer items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-amber-600"
+              >
+                <Mail className="h-4 w-4" />
+                Blast Email
+              </button>
               <div className="relative">
                 <button
                   onClick={() => setIsExportOpen(prev => !prev)}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-[#009B4F] px-3 py-2 text-xs font-bold text-white shadow-md shadow-[#009B4F]/10 transition-all hover:bg-[#008543]"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-[#009B4F] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#008543]"
                 >
                   <Download className="h-4 w-4" />
                   Export Data
@@ -530,6 +729,15 @@ export function HutangOperasional() {
                   </div>
                 )}
               </div>
+              {selectedRows.length > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-red-600/10 transition-all hover:bg-red-700"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Hapus ({selectedRows.length})
+                </button>
+              )}
             </div>
           </div>
 
@@ -886,12 +1094,13 @@ export function HutangOperasional() {
                           className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
                         />
                       </td>
-                      <td className="border border-gray-200 p-0">
+                      <td className={`border p-0 ${isInvalidCabangInput(row.akunCr) ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}>
                         <input
                           value={row.akunCr}
                           onChange={(event) => updateNewRow(index, 'akunCr', event.target.value)}
                           onPaste={(event) => handleAddPaste(event, index, 'akunCr')}
-                          className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                          className={`h-8 w-full border-0 px-2 text-[11px] outline-none ${isInvalidCabangInput(row.akunCr) ? 'bg-red-50 text-red-700 focus:bg-red-50' : 'focus:bg-emerald-50'}`}
+                          title={isInvalidCabangInput(row.akunCr) ? 'Nama cabang tidak sesuai master Firebase collection cabang' : ''}
                         />
                       </td>
                       <td className="border border-gray-200 p-0">
@@ -961,6 +1170,155 @@ export function HutangOperasional() {
                 >
                   {isAdding ? 'Menyimpan...' : 'Simpan'}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isBlastOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex flex-col justify-between gap-3 border-b border-gray-100 px-5 py-4 md:flex-row md:items-center">
+              <div>
+                <h2 className="text-lg font-black text-gray-800">Blast Email Hutang Operasional Lain</h2>
+                <p className="text-xs text-gray-500">Pengirim: keuangan.kanwilmks@gmail.com | hanya transaksi status Belum</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-700">
+                  {isQuotaLoading
+                    ? 'Cek quota...'
+                    : `Terkirim hari ini: ${emailQuota?.sentToday ?? '-'} | Sisa quota: ${emailQuota?.remainingDailyQuota ?? '-'}`
+                  }
+                </div>
+                <select
+                  value={blastDate}
+                  onChange={(event) => setBlastDate(event.target.value)}
+                  className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-gray-700 outline-none focus:border-[#009B4F] focus:ring-2 focus:ring-[#009B4F]/20"
+                >
+                  <option value="">Pilih tanggal</option>
+                  {dateSummary.map(item => (
+                    <option key={item.tanggal} value={item.tanggal}>{item.tanggal}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleSendBlastEmail}
+                  disabled={isSendingEmail || !blastDate}
+                  className="flex items-center gap-2 rounded-lg bg-[#009B4F] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#008543]"
+                >
+                  {isSendingEmail ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                  {isSendingEmail ? 'Mengirim...' : 'Send Email'}
+                </button>
+                <button
+                  onClick={() => setIsBlastOpen(false)}
+                  className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto bg-gray-50/50 p-4 xl:grid-cols-[430px_1fr]">
+              <div className="min-h-0">
+                <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
+                  <div className="border-b border-gray-100 px-4 py-3">
+                    <h3 className="text-sm font-black text-gray-800">Ringkasan by Tanggal</h3>
+                    <p className="text-[11px] font-medium text-gray-500">Email cabang dibaca dari Firebase collection cabang field email.</p>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-auto">
+                    <table className="w-full text-[11px]">
+                      <thead className="sticky top-0 bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-black uppercase text-gray-500">Tanggal</th>
+                          <th className="px-3 py-2 text-center font-black uppercase text-gray-500">Trx</th>
+                          <th className="px-3 py-2 text-right font-black uppercase text-gray-500">Nominal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {dateSummary.map(item => (
+                          <tr
+                            key={item.tanggal}
+                            onClick={() => setBlastDate(item.tanggal)}
+                            className={`cursor-pointer ${blastDate === item.tanggal ? 'bg-emerald-50 text-[#005245]' : 'hover:bg-gray-50'}`}
+                          >
+                            <td className="px-3 py-2 font-bold">{item.tanggal}</td>
+                            <td className="px-3 py-2 text-center font-mono">{item.count}</td>
+                            <td className="px-3 py-2 text-right font-mono">{formatCurrency(item.totalNominal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800">
+                    Pilih satu tanggal sebelum mengirim email.
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
+                  <div className="border-b border-gray-100 px-4 py-3">
+                    <h3 className="text-sm font-black text-gray-800">Ringkasan by AKUN (Cr)</h3>
+                  </div>
+                  <div className="max-h-[58vh] overflow-auto">
+                    <table className="w-full min-w-[720px] text-[11px]">
+                      <thead className="sticky top-0 bg-[#005245] text-white">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-black uppercase">AKUN (Cr)</th>
+                          <th className="px-3 py-2 text-left font-black uppercase">Email</th>
+                          <th className="px-3 py-2 text-center font-black uppercase">Trx</th>
+                          <th className="px-3 py-2 text-right font-black uppercase">Nominal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {blastGroups.length > 0 ? blastGroups.map(group => (
+                          <tr
+                            key={group.akunCr}
+                            onClick={() => setSelectedBlastCabang(group.akunCr)}
+                            className={`cursor-pointer ${selectedBlastGroup?.akunCr === group.akunCr ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                          >
+                            <td className="px-3 py-2 font-bold text-gray-800">{group.akunCr}</td>
+                            <td className={`px-3 py-2 ${group.email ? 'text-gray-600' : 'font-bold text-red-600'}`}>{group.email || 'Belum ada email'}</td>
+                            <td className="px-3 py-2 text-center font-mono">{group.rows.length}</td>
+                            <td className="px-3 py-2 text-right font-mono font-bold text-blue-600">{formatCurrency(group.totalNominal)}</td>
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-10 text-center text-sm italic text-gray-400">Pilih tanggal untuk menampilkan data</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
+                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                    <h3 className="text-sm font-black text-gray-800">Preview Body Email</h3>
+                    <button
+                      onClick={() => setIsEditingEmailTemplate(prev => !prev)}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-[11px] font-bold text-gray-700 transition-colors hover:bg-gray-50"
+                    >
+                      {isEditingEmailTemplate ? 'Preview Email' : 'Edit Email'}
+                    </button>
+                  </div>
+                  {isEditingEmailTemplate ? (
+                    <textarea
+                      value={emailTemplate}
+                      onChange={(event) => setEmailTemplate(event.target.value)}
+                      className="min-h-[360px] flex-1 resize-none border-0 bg-gray-950 p-4 font-mono text-[11px] leading-relaxed text-emerald-100 outline-none"
+                      placeholder="Edit template HTML email..."
+                    />
+                  ) : (
+                    <div className="min-h-[360px] flex-1 overflow-auto bg-white p-4">
+                      {selectedBlastGroup ? (
+                        <div dangerouslySetInnerHTML={{ __html: renderEmailTemplate(selectedBlastGroup) }} />
+                      ) : (
+                        <p className="text-sm italic text-gray-400">Pilih tanggal untuk melihat preview email...</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

@@ -4,7 +4,7 @@ import { User } from '../App';
 import { Logo } from './Logo';
 import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { getMenuItems } from '../constants/menuItems';
+import { getMenuItems, type RoleAccessMap } from '../constants/menuItems';
 import { ConfirmModal } from './ConfirmModal';
 
 interface SidebarProps {
@@ -14,13 +14,14 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   currentUser: User;
   onLogout: () => void;
+  roleAccessMap: RoleAccessMap;
 }
 
-export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUser, onLogout }: SidebarProps) {
+export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUser, onLogout, roleAccessMap }: SidebarProps) {
   const [openSubMenus, setOpenSubMenus] = React.useState<Record<string, boolean>>({});
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = React.useState(false);
 
-  const menuItems = getMenuItems(currentUser.role);
+  const menuItems = getMenuItems(currentUser.role, roleAccessMap);
 
   useEffect(() => {
     // Automatically open submenus that contain the active tab

@@ -27,7 +27,7 @@ import { norekService } from './services/norekService';
 import { cabangService } from './services/cabangService';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { getPathFromTab, getTabFromPath } from './constants/routeConfig';
-import { isMenuAllowed, type RoleAccessMap } from './constants/menuItems';
+import { isMenuAllowed, normalizeRoleId, type RoleAccessMap } from './constants/menuItems';
 
 export interface User {
   nik: string;
@@ -51,6 +51,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Menginisialisasi aplikasi...');
   const [roleAccessMap, setRoleAccessMap] = useState<RoleAccessMap>({});
+  const [isRoleAccessLoaded, setIsRoleAccessLoaded] = useState(false);
   const [rekonInitialData, setRekonInitialData] = useState<{
     bank: string;
     sistemData: any[];
@@ -63,21 +64,6 @@ export default function App() {
 
   // Sync activeTab with URL
   const activeTab = getTabFromPath(location.pathname);
-
-  useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'role_access'), (snapshot) => {
-      const nextMap = snapshot.docs.reduce<RoleAccessMap>((acc, item) => {
-        const data = item.data();
-        acc[item.id] = Array.isArray(data.menuIds) ? data.menuIds : [];
-        return acc;
-      }, {});
-      setRoleAccessMap(nextMap);
-    }, (error) => {
-      console.error('Role access listener error:', error);
-    });
-
-    return () => unsubscribe();
-  }, []);
 
   useEffect(() => {
     // Seed Firestore data if needed
@@ -146,6 +132,45 @@ export default function App() {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setRoleAccessMap({});
+      setIsRoleAccessLoaded(false);
+      return;
+    }
+
+    const normalizedRole = normalizeRoleId(currentUser.role);
+    if (normalizedRole === 'admin') {
+      setRoleAccessMap({});
+      setIsRoleAccessLoaded(true);
+      return;
+    }
+
+    setIsRoleAccessLoaded(false);
+    setRoleAccessMap({});
+    const unsubscribe = onSnapshot(collection(db, 'role_access'), (snapshot) => {
+      const nextMap = snapshot.docs.reduce<RoleAccessMap>((acc, item) => {
+        const data = item.data();
+        acc[item.id] = Array.isArray(data.menuIds) ? data.menuIds : [];
+        acc[normalizeRoleId(item.id)] = Array.isArray(data.menuIds) ? data.menuIds : [];
+        return acc;
+      }, {});
+
+      if (!nextMap[normalizedRole]) {
+        nextMap[normalizedRole] = ['dashboard'];
+      }
+
+      setRoleAccessMap(nextMap);
+      setIsRoleAccessLoaded(true);
+    }, (error) => {
+      console.error('Role access listener error:', error);
+      setRoleAccessMap({ [normalizedRole]: ['dashboard'] });
+      setIsRoleAccessLoaded(true);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser || !isMenuAllowed(currentUser.role, 'user-management', roleAccessMap)) {
@@ -256,6 +281,16 @@ export default function App() {
     );
   }
 
+  const shouldWaitForRoleAccess = currentUser &&
+    normalizeRoleId(currentUser.role) !== 'admin' &&
+    !isRoleAccessLoaded;
+
+  if (shouldWaitForRoleAccess) {
+    return (
+      <LoadingModal isOpen={true} message="Memuat akses user..." />
+    );
+  }
+
   return (
     <NotificationProvider>
       <Toaster position="top-right" />
@@ -319,6 +354,7 @@ export default function App() {
               <Route path="/settings/supporting-apps" element={guardRoute('setting-supporting-apps', <Settings type="supporting-apps" />)} />
               <Route path="/settings/manajemen-data" element={guardRoute('setting-general', <Settings type="general" />)} />
               <Route path="/settings/template-blast" element={guardRoute('setting-template-blast', <Settings type="template-blast" />)} />
+              <Route path="/settings/template-blast-whatsapp" element={guardRoute('setting-template-blast-whatsapp', <Settings type="template-blast-whatsapp" />)} />
               <Route path="/settings/user-management" element={guardRoute('user-management',
                 <UserManagement
                   users={users}

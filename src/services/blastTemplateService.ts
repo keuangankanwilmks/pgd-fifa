@@ -2,6 +2,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const templateDocRef = () => doc(db, 'app_settings', 'blast_email_template');
+const whatsappTemplateDocRef = () => doc(db, 'app_settings', 'blast_whatsapp_template');
 
 export const defaultBlastEmailTemplate = `
 <div style="font-family: Arial, sans-serif; color: #1f2937; background: #f3f7f5; padding: 24px;">
@@ -42,6 +43,16 @@ export const defaultBlastEmailTemplate = `
 </div>
 `.trim();
 
+export const defaultBlastWhatsAppTemplate = `
+Yth. {{1}},
+Terdapat transaksi Hutang Operasional Lain tanggal {{2}}.
+
+Jumlah transaksi: {{3}}
+Total nominal: {{4}}
+
+Mohon dilakukan pengecekan dan tindak lanjut sesuai ketentuan.
+`.trim();
+
 export const blastTemplateService = {
   async getTemplate() {
     const snapshot = await getDoc(templateDocRef());
@@ -52,6 +63,19 @@ export const blastTemplateService = {
   async saveTemplate(html: string) {
     await setDoc(templateDocRef(), {
       html,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+  },
+
+  async getWhatsAppTemplate() {
+    const snapshot = await getDoc(whatsappTemplateDocRef());
+    const text = snapshot.exists() ? snapshot.data().text : '';
+    return typeof text === 'string' && text.trim() ? text : defaultBlastWhatsAppTemplate;
+  },
+
+  async saveWhatsAppTemplate(text: string) {
+    await setDoc(whatsappTemplateDocRef(), {
+      text,
       updatedAt: new Date().toISOString(),
     }, { merge: true });
   },

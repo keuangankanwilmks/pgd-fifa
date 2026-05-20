@@ -23,6 +23,8 @@ export interface RoleAccessConfig {
 
 export type RoleAccessMap = Record<string, string[]>;
 
+export const normalizeRoleId = (role: string) => role.trim().toLowerCase();
+
 export const BASE_MENU_ITEMS: MenuItem[] = [
   { id: 'dashboard', label: 'Halaman Utama', icon: Home },
   {
@@ -77,7 +79,8 @@ export const BASE_MENU_ITEMS: MenuItem[] = [
     subItems: [
       { id: 'setting-supporting-apps', label: 'Supporting App' },
       { id: 'setting-general', label: 'Manajemen Data' },
-      { id: 'setting-template-blast', label: 'Template Blast' },
+      { id: 'setting-template-blast', label: 'Template Blast Email' },
+      { id: 'setting-template-blast-whatsapp', label: 'Template Blast WhatsApp' },
       { id: 'user-management', label: 'Manajemen User' },
     ],
   },
@@ -126,6 +129,7 @@ export const DEFAULT_ROLE_ACCESS_CONFIGS: RoleAccessConfig[] = [
         'setting-supporting-apps',
         'setting-general',
         'setting-template-blast',
+        'setting-template-blast-whatsapp',
         'user-management',
       ].includes(item.id))
       .map(item => item.id),
@@ -138,7 +142,7 @@ export const DEFAULT_ROLE_ACCESS_CONFIGS: RoleAccessConfig[] = [
 ];
 
 export const getDefaultMenuIdsForRole = (role: string) => (
-  DEFAULT_ROLE_ACCESS_CONFIGS.find(config => config.id === role)?.menuIds || ['dashboard']
+  DEFAULT_ROLE_ACCESS_CONFIGS.find(config => config.id === normalizeRoleId(role))?.menuIds || ['dashboard']
 );
 
 const filterMenuTree = (items: MenuItem[], allowedIds: Set<string>): MenuItem[] => {
@@ -167,22 +171,25 @@ const filterMenuTree = (items: MenuItem[], allowedIds: Set<string>): MenuItem[] 
 };
 
 export const getMenuItems = (role: string, roleAccessMap: RoleAccessMap = {}): MenuItem[] => {
-  if (role === 'admin') {
+  const normalizedRole = normalizeRoleId(role);
+  if (normalizedRole === 'admin') {
     return BASE_MENU_ITEMS;
   }
 
-  const allowedIds = new Set(roleAccessMap[role] || getDefaultMenuIdsForRole(role));
+  const allowedIds = new Set(roleAccessMap[role] || roleAccessMap[normalizedRole] || getDefaultMenuIdsForRole(normalizedRole));
   return filterMenuTree(BASE_MENU_ITEMS, allowedIds);
 };
 
 export const isMenuAllowed = (role: string, menuId: string, roleAccessMap: RoleAccessMap = {}) => {
-  if (role === 'admin') return true;
-  const allowedIds = roleAccessMap[role] || getDefaultMenuIdsForRole(role);
+  const normalizedRole = normalizeRoleId(role);
+  if (normalizedRole === 'admin') return true;
+  const allowedIds = roleAccessMap[role] || roleAccessMap[normalizedRole] || getDefaultMenuIdsForRole(normalizedRole);
   return allowedIds.includes(menuId);
 };
 
 export const getRoleLabel = (role: string, configs: RoleAccessConfig[] = DEFAULT_ROLE_ACCESS_CONFIGS) => {
-  return configs.find(config => config.id === role)?.label || role;
+  const normalizedRole = normalizeRoleId(role);
+  return configs.find(config => config.id === role || config.id === normalizedRole)?.label || role;
 };
 
 export const mergeRoleAccessConfigs = (configs: RoleAccessConfig[]) => {

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Edit2, Globe, Link as LinkIcon, Loader2, Database, RefreshCw, ChevronUp, ChevronDown, X, Table2, Columns3, Mail, RotateCcw } from 'lucide-react';
+import { Save, Plus, Trash2, Edit2, Globe, Link as LinkIcon, Loader2, Database, RefreshCw, ChevronUp, ChevronDown, X, Table2, Columns3, Mail, RotateCcw, MessageCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { blastTemplateService, defaultBlastEmailTemplate } from '../services/blastTemplateService';
+import { blastTemplateService, defaultBlastEmailTemplate, defaultBlastWhatsAppTemplate } from '../services/blastTemplateService';
 
 interface AppLink {
   id: string;
@@ -15,7 +15,7 @@ interface AppLink {
 }
 
 interface SettingsProps {
-  type: 'supporting-apps' | 'general' | 'template-blast';
+  type: 'supporting-apps' | 'general' | 'template-blast' | 'template-blast-whatsapp';
 }
 
 interface DataEditorConfig {
@@ -53,6 +53,7 @@ export function Settings({ type }: SettingsProps) {
   const [editorRowToDelete, setEditorRowToDelete] = useState<DataEditorRow | null>(null);
   const [isSavingAllEditorRows, setIsSavingAllEditorRows] = useState(false);
   const [blastTemplate, setBlastTemplate] = useState(defaultBlastEmailTemplate);
+  const [blastWhatsAppTemplate, setBlastWhatsAppTemplate] = useState(defaultBlastWhatsAppTemplate);
   const [isBlastTemplateLoading, setIsBlastTemplateLoading] = useState(false);
   const [isBlastTemplateSaving, setIsBlastTemplateSaving] = useState(false);
 
@@ -80,11 +81,14 @@ export function Settings({ type }: SettingsProps) {
   }, [type]);
 
   useEffect(() => {
-    if (type !== 'template-blast') return;
+    if (type !== 'template-blast' && type !== 'template-blast-whatsapp') return;
 
     setIsBlastTemplateLoading(true);
-    blastTemplateService.getTemplate()
-      .then(setBlastTemplate)
+    const loadTemplate = type === 'template-blast'
+      ? blastTemplateService.getTemplate().then(setBlastTemplate)
+      : blastTemplateService.getWhatsAppTemplate().then(setBlastWhatsAppTemplate);
+
+    loadTemplate
       .catch(error => {
         console.error('Blast template load error:', error);
         toast.error('Gagal memuat template blast');
@@ -110,6 +114,16 @@ export function Settings({ type }: SettingsProps) {
       .replaceAll('{{detailRows}}', detailRows);
   };
 
+  const renderBlastWhatsAppPreview = () => blastWhatsAppTemplate
+    .replaceAll('{{1}}', 'CP AMBON')
+    .replaceAll('{{2}}', '2026-05-19')
+    .replaceAll('{{3}}', '3')
+    .replaceAll('{{4}}', 'Rp 12.500.000')
+    .replaceAll('{{cabang}}', 'CP AMBON')
+    .replaceAll('{{tanggal}}', '2026-05-19')
+    .replaceAll('{{jumlahTransaksi}}', '3')
+    .replaceAll('{{totalNominal}}', 'Rp 12.500.000');
+
   const saveBlastTemplate = async () => {
     if (!blastTemplate.trim()) {
       toast.error('Template tidak boleh kosong');
@@ -123,6 +137,24 @@ export function Settings({ type }: SettingsProps) {
     } catch (error) {
       console.error('Blast template save error:', error);
       toast.error('Gagal menyimpan template blast');
+    } finally {
+      setIsBlastTemplateSaving(false);
+    }
+  };
+
+  const saveBlastWhatsAppTemplate = async () => {
+    if (!blastWhatsAppTemplate.trim()) {
+      toast.error('Template WhatsApp tidak boleh kosong');
+      return;
+    }
+
+    setIsBlastTemplateSaving(true);
+    try {
+      await blastTemplateService.saveWhatsAppTemplate(blastWhatsAppTemplate);
+      toast.success('Template blast WhatsApp berhasil disimpan');
+    } catch (error) {
+      console.error('Blast WhatsApp template save error:', error);
+      toast.error('Gagal menyimpan template blast WhatsApp');
     } finally {
       setIsBlastTemplateSaving(false);
     }
@@ -434,6 +466,78 @@ export function Settings({ type }: SettingsProps) {
     }
   };
 
+  if (type === 'template-blast-whatsapp') {
+    return (
+      <div className="flex h-full min-h-0 flex-col space-y-6">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-emerald-50 p-2 text-[#009B4F]">
+                <MessageCircle className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Template Blast WhatsApp</h2>
+                <p className="mt-1 max-w-3xl text-sm text-gray-500">
+                  Kelola isi pesan untuk tombol Send WhatsApp pada Hutang Operasional Lain.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setBlastWhatsAppTemplate(defaultBlastWhatsAppTemplate)}
+                className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reset Default
+              </button>
+              <button
+                onClick={saveBlastWhatsAppTemplate}
+                disabled={isBlastTemplateSaving || isBlastTemplateLoading}
+                className="flex items-center gap-2 rounded-lg bg-[#009B4F] px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-[#008543] disabled:opacity-50"
+              >
+                {isBlastTemplateSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Simpan Template
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[1fr_0.9fr]">
+          <div className="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-sm font-black text-gray-800">Template Pesan WhatsApp</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                Placeholder: {'{{1}}'} cabang, {'{{2}}'} tanggal, {'{{3}}'} jumlah transaksi, {'{{4}}'} total nominal.
+              </p>
+            </div>
+            {isBlastTemplateLoading ? (
+              <div className="flex flex-1 items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-[#009B4F]" />
+              </div>
+            ) : (
+              <textarea
+                value={blastWhatsAppTemplate}
+                onChange={(event) => setBlastWhatsAppTemplate(event.target.value)}
+                spellCheck={false}
+                className="min-h-0 flex-1 resize-none border-0 bg-gray-950 p-5 font-mono text-[12px] leading-relaxed text-emerald-100 outline-none"
+              />
+            )}
+          </div>
+
+          <div className="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-sm font-black text-gray-800">Preview Pesan</h3>
+              <p className="mt-1 text-xs text-gray-500">Preview menggunakan contoh data sebelum template dipakai di link wa.me.</p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
+              <pre className="whitespace-pre-wrap rounded-xl border border-gray-100 bg-white p-4 font-mono text-sm leading-relaxed text-gray-800">{renderBlastWhatsAppPreview()}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (type === 'template-blast') {
     return (
       <div className="flex h-full min-h-0 flex-col space-y-6">
@@ -444,7 +548,7 @@ export function Settings({ type }: SettingsProps) {
                 <Mail className="h-6 w-6" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-800">Template Blast</h2>
+                <h2 className="text-xl font-bold text-gray-800">Template Blast Email</h2>
                 <p className="mt-1 max-w-3xl text-sm text-gray-500">
                   Kelola template HTML untuk Preview Body Email pada Blast Email Hutang Operasional Lain.
                 </p>
@@ -531,7 +635,7 @@ export function Settings({ type }: SettingsProps) {
                   collectionName: 'cabang',
                   title: 'Edit Data Cabang',
                   description: 'Data Firebase collection cabang',
-                  defaultColumns: ['nama', 'area', 'passionCode', 'sapCode', 'email'],
+                  defaultColumns: ['nama', 'area', 'passionCode', 'sapCode', 'email', 'whatsapp'],
                 })}
                 className="flex items-center gap-2 px-4 py-2 bg-[#009B4F] text-white rounded-lg hover:bg-[#008543] transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >

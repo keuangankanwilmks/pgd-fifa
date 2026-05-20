@@ -12,6 +12,7 @@ import {
   FileText,
   Landmark,
   Mail,
+  MessageCircle,
   Plus,
   RefreshCw,
   Search,
@@ -28,7 +29,7 @@ import autoTable from 'jspdf-autotable';
 import { googleSheetsService } from '../services/googleSheetsService';
 import { cabangService, type Cabang } from '../services/cabangService';
 import { emailBlastService, type EmailQuotaInfo, type BlastEmailMessage } from '../services/emailBlastService';
-import { blastTemplateService, defaultBlastEmailTemplate } from '../services/blastTemplateService';
+import { blastTemplateService, defaultBlastEmailTemplate, defaultBlastWhatsAppTemplate } from '../services/blastTemplateService';
 import { useNotifications } from '../contexts/NotificationContext';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDropdown';
@@ -58,6 +59,7 @@ interface BlastEmailGroup {
   tanggal: string;
   akunCr: string;
   email: string;
+  whatsapp: string;
   rows: HutangRecord[];
   totalNominal: number;
 }
@@ -106,6 +108,16 @@ const escapeHtml = (value: unknown) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
+const normalizeWhatsAppNumber = (value: unknown) => {
+  let number = String(value ?? '').replace(/\D/g, '');
+  if (!number) return '';
+  if (number.startsWith('0')) number = `62${number.slice(1)}`;
+  if (number.startsWith('8')) number = `62${number}`;
+  return number;
+};
+
+const isValidWhatsAppNumber = (value: string) => /^62\d{8,15}$/.test(value);
+
 const toSheetRow = (row: NewHutangRow) => [
   row.tanggal,
   row.akunDb,
@@ -145,10 +157,14 @@ export function HutangOperasional() {
   const [isBlastOpen, setIsBlastOpen] = useState(false);
   const [blastDate, setBlastDate] = useState('');
   const [selectedBlastCabang, setSelectedBlastCabang] = useState('');
+  const [isWhatsAppBlastOpen, setIsWhatsAppBlastOpen] = useState(false);
+  const [whatsAppBlastDate, setWhatsAppBlastDate] = useState('');
+  const [selectedWhatsAppCabang, setSelectedWhatsAppCabang] = useState('');
   const [emailQuota, setEmailQuota] = useState<EmailQuotaInfo | null>(null);
   const [isQuotaLoading, setIsQuotaLoading] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailTemplate, setEmailTemplate] = useState(defaultBlastEmailTemplate);
+  const [whatsAppTemplate, setWhatsAppTemplate] = useState(defaultBlastWhatsAppTemplate);
   const [isEditingEmailTemplate, setIsEditingEmailTemplate] = useState(false);
   const { addNotification } = useNotifications();
 
@@ -200,6 +216,11 @@ export function HutangOperasional() {
       .then(setEmailTemplate)
       .catch(error => {
         console.error('Error fetching blast email template:', error);
+      });
+    blastTemplateService.getWhatsAppTemplate()
+      .then(setWhatsAppTemplate)
+      .catch(error => {
+        console.error('Error fetching blast WhatsApp template:', error);
       });
   }, []);
 
@@ -274,6 +295,7 @@ export function HutangOperasional() {
             tanggal: item.tanggal,
             akunCr: key,
             email: String(cabang?.email || ''),
+            whatsapp: normalizeWhatsAppNumber(cabang?.whatsapp),
             rows: [],
             totalNominal: 0,
           };
@@ -287,9 +309,40 @@ export function HutangOperasional() {
   }, [blastEligibleData, blastDate, cabangByName]);
   const selectedBlastGroup = blastGroups.find(group => group.akunCr === selectedBlastCabang) || blastGroups[0];
 
+  const whatsAppGroups = useMemo<BlastEmailGroup[]>(() => {
+    if (!whatsAppBlastDate) return [];
+
+    const grouped = blastEligibleData
+      .filter(item => item.tanggal === whatsAppBlastDate)
+      .reduce<Record<string, BlastEmailGroup>>((acc, item) => {
+        const key = item.akunCr || 'TANPA CABANG';
+        const cabang = cabangByName[normalizeText(key)];
+        if (!acc[key]) {
+          acc[key] = {
+            tanggal: item.tanggal,
+            akunCr: key,
+            email: String(cabang?.email || ''),
+            whatsapp: normalizeWhatsAppNumber(cabang?.whatsapp),
+            rows: [],
+            totalNominal: 0,
+          };
+        }
+        acc[key].rows.push(item);
+        acc[key].totalNominal += item.nominal;
+        return acc;
+      }, {});
+
+    return Object.values(grouped).sort((a, b) => a.akunCr.localeCompare(b.akunCr));
+  }, [blastEligibleData, whatsAppBlastDate, cabangByName]);
+  const selectedWhatsAppGroup = whatsAppGroups.find(group => group.akunCr === selectedWhatsAppCabang) || whatsAppGroups[0];
+
   useEffect(() => {
     setSelectedBlastCabang(blastGroups[0]?.akunCr || '');
   }, [blastDate, blastGroups]);
+
+  useEffect(() => {
+    setSelectedWhatsAppCabang(whatsAppGroups[0]?.akunCr || '');
+  }, [whatsAppBlastDate, whatsAppGroups]);
 
   useEffect(() => {
     if (!isBlastOpen) return;
@@ -603,6 +656,29 @@ export function HutangOperasional() {
     .replaceAll('{{totalNominal}}', escapeHtml(formatCurrency(group.totalNominal)))
     .replaceAll('{{detailRows}}', buildEmailDetailRows(group));
 
+  const renderWhatsAppMessage = (group: BlastEmailGroup) => whatsAppTemplate
+    .replaceAll('{{1}}', group.akunCr)
+    .replaceAll('{{2}}', group.tanggal)
+    .replaceAll('{{3}}', String(group.rows.length))
+    .replaceAll('{{4}}', formatCurrency(group.totalNominal))
+    .replaceAll('{{cabang}}', group.akunCr)
+    .replaceAll('{{tanggal}}', group.tanggal)
+    .replaceAll('{{jumlahTransaksi}}', String(group.rows.length))
+    .replaceAll('{{totalNominal}}', formatCurrency(group.totalNominal));
+
+  const buildWhatsAppUrl = (group: BlastEmailGroup) => (
+    `https://wa.me/${group.whatsapp}?text=${encodeURIComponent(renderWhatsAppMessage(group))}`
+  );
+
+  const handleSendWhatsApp = (group: BlastEmailGroup) => {
+    if (!isValidWhatsAppNumber(group.whatsapp)) {
+      toast.error(`Nomor WhatsApp ${group.akunCr} belum valid`);
+      return;
+    }
+
+    window.open(buildWhatsAppUrl(group), '_blank', 'noopener,noreferrer');
+  };
+
   const buildEmailPlainBody = (group: BlastEmailGroup) => {
     const details = group.rows.map((item, index) => (
       `${index + 1}. AKUN (Db): ${item.akunDb}\n` +
@@ -701,6 +777,13 @@ export function HutangOperasional() {
               >
                 <Mail className="h-4 w-4" />
                 Blast Email
+              </button>
+              <button
+                onClick={() => setIsWhatsAppBlastOpen(true)}
+                className="flex cursor-pointer items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-green-700"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Blast WhatsApp
               </button>
               <div className="relative">
                 <button
@@ -1170,6 +1253,145 @@ export function HutangOperasional() {
                 >
                   {isAdding ? 'Menyimpan...' : 'Simpan'}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isWhatsAppBlastOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex flex-col justify-between gap-3 border-b border-gray-100 px-5 py-4 md:flex-row md:items-center">
+              <div>
+                <h2 className="text-lg font-black text-gray-800">Blast WhatsApp Hutang Operasional Lain</h2>
+                <p className="text-xs text-gray-500">Metode manual via wa.me | hanya transaksi status Belum</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={whatsAppBlastDate}
+                  onChange={(event) => setWhatsAppBlastDate(event.target.value)}
+                  className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-gray-700 outline-none focus:border-[#009B4F] focus:ring-2 focus:ring-[#009B4F]/20"
+                >
+                  <option value="">Pilih tanggal</option>
+                  {dateSummary.map(item => (
+                    <option key={item.tanggal} value={item.tanggal}>{item.tanggal}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setIsWhatsAppBlastOpen(false)}
+                  className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto bg-gray-50/50 p-4 xl:grid-cols-[430px_1fr]">
+              <div className="min-h-0">
+                <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
+                  <div className="border-b border-gray-100 px-4 py-3">
+                    <h3 className="text-sm font-black text-gray-800">Ringkasan by Tanggal</h3>
+                    <p className="text-[11px] font-medium text-gray-500">Nomor WhatsApp dibaca dari Firebase collection cabang field whatsapp.</p>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-auto">
+                    <table className="w-full text-[11px]">
+                      <thead className="sticky top-0 bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-black uppercase text-gray-500">Tanggal</th>
+                          <th className="px-3 py-2 text-center font-black uppercase text-gray-500">Trx</th>
+                          <th className="px-3 py-2 text-right font-black uppercase text-gray-500">Nominal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {dateSummary.map(item => (
+                          <tr
+                            key={item.tanggal}
+                            onClick={() => setWhatsAppBlastDate(item.tanggal)}
+                            className={`cursor-pointer ${whatsAppBlastDate === item.tanggal ? 'bg-emerald-50 text-[#005245]' : 'hover:bg-gray-50'}`}
+                          >
+                            <td className="px-3 py-2 font-bold">{item.tanggal}</td>
+                            <td className="px-3 py-2 text-center font-mono">{item.count}</td>
+                            <td className="px-3 py-2 text-right font-mono">{formatCurrency(item.totalNominal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800">
+                    Pilih satu tanggal, lalu klik Send WhatsApp per cabang.
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
+                  <div className="border-b border-gray-100 px-4 py-3">
+                    <h3 className="text-sm font-black text-gray-800">Daftar Cabang</h3>
+                  </div>
+                  <div className="max-h-[58vh] overflow-auto">
+                    <table className="w-full min-w-[840px] text-[11px]">
+                      <thead className="sticky top-0 bg-[#005245] text-white">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-black uppercase">AKUN (Cr)</th>
+                          <th className="px-3 py-2 text-left font-black uppercase">WhatsApp</th>
+                          <th className="px-3 py-2 text-center font-black uppercase">Trx</th>
+                          <th className="px-3 py-2 text-right font-black uppercase">Nominal</th>
+                          <th className="px-3 py-2 text-center font-black uppercase">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {whatsAppGroups.length > 0 ? whatsAppGroups.map(group => {
+                          const validNumber = isValidWhatsAppNumber(group.whatsapp);
+                          return (
+                            <tr
+                              key={group.akunCr}
+                              onClick={() => setSelectedWhatsAppCabang(group.akunCr)}
+                              className={`cursor-pointer ${selectedWhatsAppGroup?.akunCr === group.akunCr ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                            >
+                              <td className="px-3 py-2 font-bold text-gray-800">{group.akunCr}</td>
+                              <td className={`px-3 py-2 ${validNumber ? 'font-mono text-gray-600' : 'font-bold text-red-600'}`}>
+                                {group.whatsapp || 'Belum ada nomor'}
+                              </td>
+                              <td className="px-3 py-2 text-center font-mono">{group.rows.length}</td>
+                              <td className="px-3 py-2 text-right font-mono font-bold text-blue-600">{formatCurrency(group.totalNominal)}</td>
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleSendWhatsApp(group);
+                                  }}
+                                  disabled={!validNumber}
+                                  className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                                >
+                                  <MessageCircle className="h-3.5 w-3.5" />
+                                  Send WhatsApp
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        }) : (
+                          <tr>
+                            <td colSpan={5} className="px-3 py-10 text-center text-sm italic text-gray-400">Pilih tanggal untuk menampilkan data</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
+                  <div className="border-b border-gray-100 px-4 py-3">
+                    <h3 className="text-sm font-black text-gray-800">Preview Pesan WhatsApp</h3>
+                  </div>
+                  <div className="min-h-[360px] flex-1 overflow-auto bg-white p-4">
+                    {selectedWhatsAppGroup ? (
+                      <pre className="whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 p-4 font-mono text-[12px] leading-relaxed text-gray-800">{renderWhatsAppMessage(selectedWhatsAppGroup)}</pre>
+                    ) : (
+                      <p className="text-sm italic text-gray-400">Pilih tanggal untuk melihat preview pesan...</p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

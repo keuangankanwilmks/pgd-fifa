@@ -656,15 +656,33 @@ export function HutangOperasional() {
     .replaceAll('{{totalNominal}}', escapeHtml(formatCurrency(group.totalNominal)))
     .replaceAll('{{detailRows}}', buildEmailDetailRows(group));
 
-  const renderWhatsAppMessage = (group: BlastEmailGroup) => whatsAppTemplate
-    .replaceAll('{{1}}', group.akunCr)
-    .replaceAll('{{2}}', group.tanggal)
-    .replaceAll('{{3}}', String(group.rows.length))
-    .replaceAll('{{4}}', formatCurrency(group.totalNominal))
-    .replaceAll('{{cabang}}', group.akunCr)
-    .replaceAll('{{tanggal}}', group.tanggal)
-    .replaceAll('{{jumlahTransaksi}}', String(group.rows.length))
-    .replaceAll('{{totalNominal}}', formatCurrency(group.totalNominal));
+  const buildWhatsAppDetailRows = (group: BlastEmailGroup) => group.rows.map((item, index) => (
+    `${index + 1}. AKUN (Db): ${item.akunDb || '-'}\n` +
+    `   Nominal: ${formatCurrency(item.nominal)}\n` +
+    `   Keterangan: ${item.keterangan || '-'}\n` +
+    `   Status: ${item.status || '-'}`
+  )).join('\n\n');
+
+  const renderWhatsAppMessage = (group: BlastEmailGroup) => {
+    const detailRows = buildWhatsAppDetailRows(group);
+    const rendered = whatsAppTemplate
+      .replaceAll('{{1}}', group.akunCr)
+      .replaceAll('{{2}}', group.tanggal)
+      .replaceAll('{{3}}', String(group.rows.length))
+      .replaceAll('{{4}}', formatCurrency(group.totalNominal))
+      .replaceAll('{{5}}', detailRows)
+      .replaceAll('{{cabang}}', group.akunCr)
+      .replaceAll('{{tanggal}}', group.tanggal)
+      .replaceAll('{{jumlahTransaksi}}', String(group.rows.length))
+      .replaceAll('{{totalNominal}}', formatCurrency(group.totalNominal))
+      .replaceAll('{{detailRows}}', detailRows);
+
+    if (whatsAppTemplate.includes('{{5}}') || whatsAppTemplate.includes('{{detailRows}}')) {
+      return rendered;
+    }
+
+    return `${rendered}\n\nRincian transaksi:\n${detailRows}`;
+  };
 
   const buildWhatsAppUrl = (group: BlastEmailGroup) => (
     `https://wa.me/${group.whatsapp}?text=${encodeURIComponent(renderWhatsAppMessage(group))}`

@@ -50,7 +50,11 @@ Terdapat transaksi Hutang Operasional Lain tanggal {{2}}.
 Jumlah transaksi: {{3}}
 Total nominal: {{4}}
 
-Mohon dilakukan pengecekan dan tindak lanjut sesuai ketentuan.
+Rincian transaksi:
+{{5}}
+
+Mohon dilakukan pengecekan dan tindak lanjut sesuai ketentuan. Terima kasih.
+By Keuangan
 `.trim();
 
 export const blastTemplateService = {

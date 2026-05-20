@@ -114,15 +114,31 @@ export function Settings({ type }: SettingsProps) {
       .replaceAll('{{detailRows}}', detailRows);
   };
 
-  const renderBlastWhatsAppPreview = () => blastWhatsAppTemplate
-    .replaceAll('{{1}}', 'CP AMBON')
-    .replaceAll('{{2}}', '2026-05-19')
-    .replaceAll('{{3}}', '3')
-    .replaceAll('{{4}}', 'Rp 12.500.000')
-    .replaceAll('{{cabang}}', 'CP AMBON')
-    .replaceAll('{{tanggal}}', '2026-05-19')
-    .replaceAll('{{jumlahTransaksi}}', '3')
-    .replaceAll('{{totalNominal}}', 'Rp 12.500.000');
+  const renderBlastWhatsAppPreview = () => {
+    const detailRows = [
+      '1. AKUN (Db): BSI\n   Nominal: Rp 2.751.560\n   Keterangan: BELUM DIBUKUKAN CABANG\n   Status: Belum',
+      '2. AKUN (Db): BSI\n   Nominal: Rp 296.878\n   Keterangan: BELUM DIBUKUKAN CABANG\n   Status: Belum',
+      '3. AKUN (Db): BSI\n   Nominal: Rp 300.782\n   Keterangan: BELUM DIBUKUKAN CABANG\n   Status: Belum',
+    ].join('\n\n');
+
+    const rendered = blastWhatsAppTemplate
+      .replaceAll('{{1}}', 'CPS CENTRAL')
+      .replaceAll('{{2}}', '2026-03-31')
+      .replaceAll('{{3}}', '3')
+      .replaceAll('{{4}}', 'Rp 3.349.220')
+      .replaceAll('{{5}}', detailRows)
+      .replaceAll('{{cabang}}', 'CPS CENTRAL')
+      .replaceAll('{{tanggal}}', '2026-03-31')
+      .replaceAll('{{jumlahTransaksi}}', '3')
+      .replaceAll('{{totalNominal}}', 'Rp 3.349.220')
+      .replaceAll('{{detailRows}}', detailRows);
+
+    if (blastWhatsAppTemplate.includes('{{5}}') || blastWhatsAppTemplate.includes('{{detailRows}}')) {
+      return rendered;
+    }
+
+    return `${rendered}\n\nRincian transaksi:\n${detailRows}`;
+  };
 
   const saveBlastTemplate = async () => {
     if (!blastTemplate.trim()) {
@@ -507,7 +523,7 @@ export function Settings({ type }: SettingsProps) {
             <div className="border-b border-gray-100 px-5 py-4">
               <h3 className="text-sm font-black text-gray-800">Template Pesan WhatsApp</h3>
               <p className="mt-1 text-xs text-gray-500">
-                Placeholder: {'{{1}}'} cabang, {'{{2}}'} tanggal, {'{{3}}'} jumlah transaksi, {'{{4}}'} total nominal.
+                Placeholder: {'{{1}}'} cabang, {'{{2}}'} tanggal, {'{{3}}'} jumlah transaksi, {'{{4}}'} total nominal, {'{{5}}'} rincian transaksi.
               </p>
             </div>
             {isBlastTemplateLoading ? (

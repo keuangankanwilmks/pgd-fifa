@@ -8,6 +8,8 @@ import {
   ChevronRight,
   Download,
   Edit2,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
   FileText,
   Landmark,
@@ -165,7 +167,8 @@ export function HutangOperasional() {
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailTemplate, setEmailTemplate] = useState(defaultBlastEmailTemplate);
   const [whatsAppTemplate, setWhatsAppTemplate] = useState(defaultBlastWhatsAppTemplate);
-  const [isEditingEmailTemplate, setIsEditingEmailTemplate] = useState(false);
+  const [showEmailPreview, setShowEmailPreview] = useState(true);
+  const [showWhatsAppPreview, setShowWhatsAppPreview] = useState(true);
   const { addNotification } = useNotifications();
 
   const fetchData = async () => {
@@ -1285,7 +1288,7 @@ export function HutangOperasional() {
                 <h2 className="text-lg font-black text-gray-800">Blast WhatsApp Hutang Operasional Lain</h2>
                 <p className="text-xs text-gray-500">Metode manual via wa.me | hanya transaksi status Belum</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <select
                   value={whatsAppBlastDate}
                   onChange={(event) => setWhatsAppBlastDate(event.target.value)}
@@ -1296,6 +1299,13 @@ export function HutangOperasional() {
                     <option key={item.tanggal} value={item.tanggal}>{item.tanggal}</option>
                   ))}
                 </select>
+                <button
+                  onClick={() => setShowWhatsAppPreview(prev => !prev)}
+                  className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  {showWhatsAppPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showWhatsAppPreview ? 'Hide Preview Pesan WhatsApp' : 'Show Preview Pesan WhatsApp'}
+                </button>
                 <button
                   onClick={() => setIsWhatsAppBlastOpen(false)}
                   className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
@@ -1342,7 +1352,7 @@ export function HutangOperasional() {
                 </div>
               </div>
 
-              <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+              <div className={`grid min-h-0 grid-cols-1 gap-4 ${showWhatsAppPreview ? 'lg:grid-cols-[1.15fr_0.85fr]' : 'lg:grid-cols-1'}`}>
                 <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
                   <div className="border-b border-gray-100 px-4 py-3">
                     <h3 className="text-sm font-black text-gray-800">Daftar Cabang</h3>
@@ -1398,18 +1408,20 @@ export function HutangOperasional() {
                   </div>
                 </div>
 
-                <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
-                  <div className="border-b border-gray-100 px-4 py-3">
-                    <h3 className="text-sm font-black text-gray-800">Preview Pesan WhatsApp</h3>
+                {showWhatsAppPreview && (
+                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
+                    <div className="border-b border-gray-100 px-4 py-3">
+                      <h3 className="text-sm font-black text-gray-800">Preview Pesan WhatsApp</h3>
+                    </div>
+                    <div className="min-h-[360px] flex-1 overflow-auto bg-white p-4">
+                      {selectedWhatsAppGroup ? (
+                        <pre className="whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 p-4 font-mono text-[12px] leading-relaxed text-gray-800">{renderWhatsAppMessage(selectedWhatsAppGroup)}</pre>
+                      ) : (
+                        <p className="text-sm italic text-gray-400">Pilih tanggal untuk melihat preview pesan...</p>
+                      )}
+                    </div>
                   </div>
-                  <div className="min-h-[360px] flex-1 overflow-auto bg-white p-4">
-                    {selectedWhatsAppGroup ? (
-                      <pre className="whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 p-4 font-mono text-[12px] leading-relaxed text-gray-800">{renderWhatsAppMessage(selectedWhatsAppGroup)}</pre>
-                    ) : (
-                      <p className="text-sm italic text-gray-400">Pilih tanggal untuk melihat preview pesan...</p>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -1424,7 +1436,7 @@ export function HutangOperasional() {
                 <h2 className="text-lg font-black text-gray-800">Blast Email Hutang Operasional Lain</h2>
                 <p className="text-xs text-gray-500">Pengirim: keuangan.kanwilmks@gmail.com | hanya transaksi status Belum</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-700">
                   {isQuotaLoading
                     ? 'Cek quota...'
@@ -1448,6 +1460,13 @@ export function HutangOperasional() {
                 >
                   {isSendingEmail ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                   {isSendingEmail ? 'Mengirim...' : 'Send Email'}
+                </button>
+                <button
+                  onClick={() => setShowEmailPreview(prev => !prev)}
+                  className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  {showEmailPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showEmailPreview ? 'Hide Preview Blast Email' : 'Show Preview Blast Email'}
                 </button>
                 <button
                   onClick={() => setIsBlastOpen(false)}
@@ -1495,10 +1514,10 @@ export function HutangOperasional() {
                 </div>
               </div>
 
-              <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className={`grid min-h-0 grid-cols-1 gap-4 ${showEmailPreview ? 'lg:grid-cols-[1.1fr_0.9fr]' : 'lg:grid-cols-1'}`}>
                 <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
                   <div className="border-b border-gray-100 px-4 py-3">
-                    <h3 className="text-sm font-black text-gray-800">Ringkasan by AKUN (Cr)</h3>
+                    <h3 className="text-sm font-black text-gray-800">Daftar Cabang</h3>
                   </div>
                   <div className="max-h-[58vh] overflow-auto">
                     <table className="w-full min-w-[720px] text-[11px]">
@@ -1532,24 +1551,11 @@ export function HutangOperasional() {
                   </div>
                 </div>
 
-                <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
-                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                    <h3 className="text-sm font-black text-gray-800">Preview Body Email</h3>
-                    <button
-                      onClick={() => setIsEditingEmailTemplate(prev => !prev)}
-                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-[11px] font-bold text-gray-700 transition-colors hover:bg-gray-50"
-                    >
-                      {isEditingEmailTemplate ? 'Preview Email' : 'Edit Email'}
-                    </button>
-                  </div>
-                  {isEditingEmailTemplate ? (
-                    <textarea
-                      value={emailTemplate}
-                      onChange={(event) => setEmailTemplate(event.target.value)}
-                      className="min-h-[360px] flex-1 resize-none border-0 bg-gray-950 p-4 font-mono text-[11px] leading-relaxed text-emerald-100 outline-none"
-                      placeholder="Edit template HTML email..."
-                    />
-                  ) : (
+                {showEmailPreview && (
+                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white">
+                    <div className="border-b border-gray-100 px-4 py-3">
+                      <h3 className="text-sm font-black text-gray-800">Preview Blast Email</h3>
+                    </div>
                     <div className="min-h-[360px] flex-1 overflow-auto bg-white p-4">
                       {selectedBlastGroup ? (
                         <div dangerouslySetInnerHTML={{ __html: renderEmailTemplate(selectedBlastGroup) }} />
@@ -1557,8 +1563,8 @@ export function HutangOperasional() {
                         <p className="text-sm italic text-gray-400">Pilih tanggal untuk melihat preview email...</p>
                       )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

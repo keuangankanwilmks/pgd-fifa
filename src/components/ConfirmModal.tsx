@@ -1,5 +1,7 @@
 import React from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { AnimatedModal } from './AnimatedModal';
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -26,10 +28,10 @@ export function ConfirmModal({
   loadingText = 'Menghapus...',
   variant = 'danger'
 }: ConfirmModalProps) {
-  if (!isOpen) return null;
+  useEscapeToClose(isOpen && !isLoading, onCancel);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+    <AnimatedModal isOpen={isOpen} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
@@ -77,6 +79,6 @@ export function ConfirmModal({
           </div>
         </div>
       </div>
-    </div>
+    </AnimatedModal>
   );
 }

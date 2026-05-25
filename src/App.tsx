@@ -20,6 +20,7 @@ import { Settings } from './pages/Settings';
 import { ProsesMoker } from './pages/ProsesMoker';
 import { DataMoker } from './pages/DataMoker';
 import { HutangOperasional } from './pages/HutangOperasional';
+import { SaldoHarian } from './pages/SaldoHarian';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
@@ -209,6 +210,10 @@ export default function App() {
     }
   }, [navigate]);
 
+  const handleProfileUpdated = useCallback((updatedUser: User) => {
+    setCurrentUser(updatedUser);
+  }, []);
+
   // Idle timeout logic: 15 minutes
   useEffect(() => {
     if (!currentUser) return;
@@ -303,6 +308,7 @@ export default function App() {
           setActiveTab={handleTabChange} 
           currentUser={currentUser}
           onLogout={handleLogout}
+          onProfileUpdated={handleProfileUpdated}
           roleAccessMap={roleAccessMap}
         />
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -348,6 +354,7 @@ export default function App() {
                 />
               )} />
               <Route path="/rekonsiliasi-bank/bsi/data-rekon" element={guardRoute('data-rekon-bsi', <DataRekon bank="BSI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />)} />
+              <Route path="/rekonsiliasi-bank/saldo-harian" element={guardRoute('saldo-harian', <SaldoHarian />)} />
               <Route path="/report" element={guardRoute('report', <Report currentUser={currentUser} />)} />
               <Route path="/hutang-operasional" element={guardRoute('hutang', <HutangOperasional />)} />
               <Route path="/supporting-app/:id" element={<SupportingAppView tabId={activeTab} />} />

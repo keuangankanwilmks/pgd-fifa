@@ -5,6 +5,8 @@ import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { blastTemplateService, defaultBlastEmailTemplate, defaultBlastWhatsAppTemplate } from '../services/blastTemplateService';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { AnimatedModal } from '../components/AnimatedModal';
 
 interface AppLink {
   id: string;
@@ -19,7 +21,7 @@ interface SettingsProps {
 }
 
 interface DataEditorConfig {
-  collectionName: 'cabang' | 'norek_mapping';
+  collectionName: 'cabang' | 'norek_mapping' | 'gl_bank';
   title: string;
   description: string;
   defaultColumns: string[];
@@ -268,6 +270,12 @@ export function Settings({ type }: SettingsProps) {
     }
   };
 
+  const closeSupportingAppModal = () => {
+    setIsAdding(false);
+    setIsEditing(false);
+    setCurrentApp(null);
+  };
+
   const collectColumns = (rows: DataEditorRow[], defaultColumns: string[]) => {
     const dynamicColumns = rows.flatMap(row => Object.keys(row).filter(key => key !== 'id' && key !== 'isNew'));
     return Array.from(new Set([...defaultColumns, ...dynamicColumns]));
@@ -306,6 +314,13 @@ export function Settings({ type }: SettingsProps) {
     setEditorConfirmAction(null);
     setEditorRowToDelete(null);
   };
+
+  useEscapeToClose(isAdding || isEditing, closeSupportingAppModal);
+  useEscapeToClose(isDeleting, () => {
+    setIsDeleting(false);
+    setAppToDelete(null);
+  });
+  useEscapeToClose(!!dataEditorConfig && !isEditorConfirmOpen, closeDataEditor);
 
   const buildEditorPayload = (row: DataEditorRow) => {
     return dataEditorColumns.reduce<Record<string, any>>((payload, column) => {
@@ -640,7 +655,7 @@ export function Settings({ type }: SettingsProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
               <h3 className="font-semibold text-gray-800 mb-2">Data Cabang & Area</h3>
               <p className="text-sm text-gray-500 mb-4">
@@ -678,11 +693,30 @@ export function Settings({ type }: SettingsProps) {
                 Edit Data No Rekening
               </button>
             </div>
+
+            <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
+              <h3 className="font-semibold text-gray-800 mb-2">Data GL Bank</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Edit mapping Bank, No Rekening, Nomor GL, dan PIC untuk pengisian otomatis Saldo Harian.
+              </p>
+              <button
+                onClick={() => openDataEditor({
+                  collectionName: 'gl_bank',
+                  title: 'Edit Data GL Bank',
+                  description: 'Data Firebase collection gl_bank',
+                  defaultColumns: ['bank', 'noRekening', 'nomorGL', 'pic'],
+                })}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Table2 className="w-4 h-4" />
+                Edit Data GL Bank
+              </button>
+            </div>
           </div>
         </div>
 
-        {dataEditorConfig && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <AnimatedModal isOpen={!!dataEditorConfig} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          {dataEditorConfig ? (
             <div className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
               <div className="flex flex-col justify-between gap-4 border-b border-gray-100 p-5 lg:flex-row lg:items-center">
                 <div>
@@ -790,8 +824,8 @@ export function Settings({ type }: SettingsProps) {
                 )}
               </div>
             </div>
-          </div>
-        )}
+          ) : <div />}
+        </AnimatedModal>
 
         <ConfirmModal
           isOpen={isEditorConfirmOpen}
@@ -904,8 +938,7 @@ export function Settings({ type }: SettingsProps) {
         </div>
       </div>
 
-      {(isAdding || isEditing) && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <AnimatedModal isOpen={isAdding || isEditing} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="p-6 border-b border-gray-100">
               <h3 className="text-lg font-bold text-gray-800">
@@ -965,11 +998,7 @@ export function Settings({ type }: SettingsProps) {
             </div>
             <div className="p-6 bg-gray-50 flex items-center justify-end gap-3">
               <button 
-                onClick={() => {
-                  setIsAdding(false);
-                  setIsEditing(false);
-                  setCurrentApp(null);
-                }}
+                onClick={closeSupportingAppModal}
                 className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
               >
                 Batal
@@ -982,11 +1011,9 @@ export function Settings({ type }: SettingsProps) {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-      {isDeleting && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <AnimatedModal isOpen={isDeleting} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
             <div className="p-6 text-center">
               <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center text-red-500 mx-auto mb-4">
@@ -1013,8 +1040,7 @@ export function Settings({ type }: SettingsProps) {
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
     </div>
   );
 }

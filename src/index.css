@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+.fifa-modal-backdrop {
+  transition: opacity 170ms ease;
+}
+
+.fifa-modal-backdrop.fifa-modal-open {
+  opacity: 1;
+}
+
+.fifa-modal-backdrop.fifa-modal-closed {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.fifa-modal-panel {
+  transition: opacity 170ms ease, transform 170ms ease;
+  transform-origin: center;
+}
+
+.fifa-modal-panel.fifa-modal-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.fifa-modal-panel.fifa-modal-closed {
+  opacity: 0;
+  transform: translateY(6px) scale(0.985);
+}

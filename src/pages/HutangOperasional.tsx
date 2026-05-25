@@ -35,6 +35,8 @@ import { blastTemplateService, defaultBlastEmailTemplate, defaultBlastWhatsAppTe
 import { useNotifications } from '../contexts/NotificationContext';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDropdown';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { AnimatedModal } from '../components/AnimatedModal';
 
 interface HutangRecord {
   rowIndex: number;
@@ -359,6 +361,10 @@ export function HutangOperasional() {
       })
       .finally(() => setIsQuotaLoading(false));
   }, [isBlastOpen]);
+
+  useEscapeToClose(isAddOpen && !isAdding, () => setIsAddOpen(false));
+  useEscapeToClose(isBlastOpen && !isSendingEmail, () => setIsBlastOpen(false));
+  useEscapeToClose(isWhatsAppBlastOpen, () => setIsWhatsAppBlastOpen(false));
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -1149,8 +1155,7 @@ export function HutangOperasional() {
         </div>
       </div>
 
-      {isAddOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+      <AnimatedModal isOpen={isAddOpen} className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
           <div className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <h2 className="text-lg font-black text-gray-800">Tambah Data Hutang Operasional Lain</h2>
@@ -1277,11 +1282,9 @@ export function HutangOperasional() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-      {isWhatsAppBlastOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+      <AnimatedModal isOpen={isWhatsAppBlastOpen} className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
           <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex flex-col justify-between gap-3 border-b border-gray-100 px-5 py-4 md:flex-row md:items-center">
               <div>
@@ -1425,11 +1428,9 @@ export function HutangOperasional() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-      {isBlastOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+      <AnimatedModal isOpen={isBlastOpen} className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
           <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex flex-col justify-between gap-3 border-b border-gray-100 px-5 py-4 md:flex-row md:items-center">
               <div>
@@ -1568,8 +1569,7 @@ export function HutangOperasional() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
       <ConfirmModal
         isOpen={isConfirmOpen}

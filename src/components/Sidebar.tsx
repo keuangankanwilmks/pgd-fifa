@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Home, Briefcase, Landmark, FileText, ChevronDown, ChevronRight, LogOut, User as UserIcon, Scale, Users, Settings, BarChart3, AppWindow, ExternalLink } from 'lucide-react';
 import { User } from '../App';
 import { Logo } from './Logo';
@@ -6,6 +6,7 @@ import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { getMenuItems, type RoleAccessMap } from '../constants/menuItems';
 import { ConfirmModal } from './ConfirmModal';
+import { ProfileSettingsModal } from './ProfileSettingsModal';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -14,12 +15,16 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   currentUser: User;
   onLogout: () => void;
+  onProfileUpdated: (user: User) => void;
   roleAccessMap: RoleAccessMap;
 }
 
-export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUser, onLogout, roleAccessMap }: SidebarProps) {
+export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUser, onLogout, onProfileUpdated, roleAccessMap }: SidebarProps) {
   const [openSubMenus, setOpenSubMenus] = React.useState<Record<string, boolean>>({});
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = React.useState(false);
+  const [isProfileOpen, setIsProfileOpen] = React.useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = React.useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   const menuItems = getMenuItems(currentUser.role, roleAccessMap);
 
@@ -61,6 +66,26 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
   const toggleSubMenu = (id: string) => {
     setOpenSubMenus(prev => ({ ...prev, [id]: !prev[id] }));
   };
+
+  useEffect(() => {
+    if (!isUserMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!userMenuRef.current || userMenuRef.current.contains(event.target as Node)) return;
+      setIsUserMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsUserMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isUserMenuOpen]);
 
   return (
     <>
@@ -147,22 +172,45 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
       </div>
 
       <div className="p-4 border-t border-[#004237] flex flex-col gap-4">
-        <div className="bg-[#004237]/50 rounded-xl p-4 flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-[#65B32E] flex items-center justify-center text-white shadow-sm shrink-0">
-              <UserIcon className="w-4 h-4" />
+        <div ref={userMenuRef} className="relative">
+          {isUserMenuOpen && (
+            <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-[#006A5A] bg-[#004237] p-2 shadow-2xl fifa-modal-panel fifa-modal-open">
+              <button
+                onClick={() => {
+                  setIsUserMenuOpen(false);
+                  setIsProfileOpen(true);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-emerald-50 transition-colors hover:bg-[#006A5A]"
+              >
+                <UserIcon className="h-4 w-4" />
+                Profil Setting
+              </button>
+              <button
+                onClick={() => {
+                  setIsUserMenuOpen(false);
+                  setIsLogoutConfirmOpen(true);
+                }}
+                className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/15"
+              >
+                <LogOut className="h-4 w-4" />
+                Keluar
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{currentUser.name}</p>
-              <p className="text-xs text-emerald-200/70 truncate">NIK: {currentUser.nik}</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => setIsLogoutConfirmOpen(true)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg text-sm font-medium transition-colors cursor-pointer"
+          )}
+          <button
+            onClick={() => setIsUserMenuOpen(prev => !prev)}
+            className="w-full rounded-xl bg-[#004237]/50 p-4 text-left transition-colors hover:bg-[#004237]/80"
           >
-            <LogOut className="w-4 h-4" />
-            Keluar
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#65B32E] flex items-center justify-center text-white shadow-sm shrink-0">
+                <UserIcon className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">{currentUser.name}</p>
+                <p className="text-xs text-emerald-200/70 truncate">NIK: {currentUser.nik}</p>
+              </div>
+              <ChevronDown className={`h-4 w-4 text-emerald-200 transition-transform ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+            </div>
           </button>
         </div>
         <div className="text-center pb-2">
@@ -186,6 +234,12 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
         cancelText="Tidak"
         loadingText="Keluar..."
         variant="primary"
+      />
+      <ProfileSettingsModal
+        isOpen={isProfileOpen}
+        currentUser={currentUser}
+        onClose={() => setIsProfileOpen(false)}
+        onUpdated={onProfileUpdated}
       />
     </>
   );

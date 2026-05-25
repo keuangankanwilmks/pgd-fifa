@@ -8,6 +8,7 @@ import googleSheetsService from '../services/googleSheetsService';
 import { cabangService, Cabang } from '../services/cabangService';
 import toast from 'react-hot-toast';
 import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDropdown';
+import { saldoHarianService, type SaldoHarianRow } from '../services/saldoHarianService';
 
 interface SummaryItem {
   bank: string;
@@ -100,7 +101,7 @@ const parseSheetDate = (sheetDate: any) => {
 };
 
 export function Report({ currentUser }: { currentUser?: any }) {
-  const [activeSubTab, setActiveSubTab] = useState<'rekon' | 'moker'>('rekon');
+  const [activeSubTab, setActiveSubTab] = useState<'rekon' | 'moker' | 'saldo'>('rekon');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedBank, setSelectedBank] = useState('Semua');
@@ -428,6 +429,16 @@ export function Report({ currentUser }: { currentUser?: any }) {
           }`}
         >
           Summary Moker
+        </button>
+        <button
+          onClick={() => setActiveSubTab('saldo')}
+          className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${
+            activeSubTab === 'saldo'
+              ? 'bg-white text-[#009B4F] shadow-sm'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Saldo Bank Harian
         </button>
       </div>
 
@@ -786,8 +797,10 @@ export function Report({ currentUser }: { currentUser?: any }) {
           </div>
         )}
         </div>
-      ) : (
+      ) : activeSubTab === 'moker' ? (
         <SummaryMoker currentUser={currentUser} />
+      ) : (
+        <SaldoBankHarianReport />
       )}
     </div>
   );
@@ -1600,4 +1613,527 @@ function SummaryMoker({ currentUser }: { currentUser?: any }) {
         )}
       </div>
     );
+}
+
+function SaldoBankHarianReport() {
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [rows, setRows] = useState<SaldoHarianRow[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showData, setShowData] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [chartTooltip, setChartTooltip] = useState<{
+    bank: string;
+    tanggal: string;
+    value: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const formatCurrency = (amount: number) => (
+    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount)
+  );
+
+  const formatShortCurrency = (amount: number) => (
+    new Intl.NumberFormat('id-ID', { notation: 'compact', maximumFractionDigits: 1 }).format(amount)
+  );
+
+  const formatDateLabel = (date: string) => {
+    if (!date) return '-';
+    const parsed = new Date(`${date}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return date;
+    return parsed.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+  };
+
+  const normalizeBankName = (bank: string) => String(bank || '').trim().toUpperCase();
+
+  const getBankColor = (bank: string) => {
+    const bankName = normalizeBankName(bank);
+    const colorMap: Record<string, string> = {
+      BNI: '#F45922',
+      BRI: '#005FA6',
+      BSI: '#0CA49D',
+      BRIS: '#009B4F',
+    };
+    return colorMap[bankName] || '#64748b';
+  };
+
+  const fetchSaldoRows = async (showErrorToast = true) => {
+    const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
+    if (!spreadsheetId) {
+      if (showErrorToast) toast.error('Spreadsheet ID belum dikonfigurasi');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const data = await saldoHarianService.readRows(spreadsheetId);
+      setRows(data);
+    } catch (error: any) {
+      console.error('Saldo Bank Harian report error:', error);
+      if (showErrorToast) {
+        toast.error(`Gagal memuat Saldo Bank Harian: ${error.message || 'Unknown error'}`);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSaldoRows(false);
+  }, []);
+
+  const handleTampilkanData = async () => {
+    if (!startDate || !endDate) {
+      toast.error('Silakan isi rentang tanggal terlebih dahulu');
+      return;
+    }
+
+    await fetchSaldoRows();
+    setShowData(true);
+  };
+
+  const resetFilters = () => {
+    setStartDate('');
+    setEndDate('');
+    setShowData(false);
+    setIsExportOpen(false);
+    toast.success('Filter telah direset');
+  };
+
+  const filteredRows = useMemo(() => {
+    return rows
+      .filter(item => {
+        const tanggal = item.tanggal;
+        return (!startDate || tanggal >= startDate) && (!endDate || tanggal <= endDate);
+      })
+      .sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || '') || normalizeBankName(a.bank).localeCompare(normalizeBankName(b.bank)));
+  }, [rows, startDate, endDate]);
+
+  const groupedByDate = useMemo(() => {
+    const grouped: Record<string, SaldoHarianRow[]> = {};
+    filteredRows.forEach(item => {
+      if (!grouped[item.tanggal]) grouped[item.tanggal] = [];
+      grouped[item.tanggal].push(item);
+    });
+
+    return Object.keys(grouped)
+      .sort()
+      .map(tanggal => ({
+        tanggal,
+        rows: grouped[tanggal].sort((a, b) => normalizeBankName(a.bank).localeCompare(normalizeBankName(b.bank))),
+      }));
+  }, [filteredRows]);
+
+  const chartRows = useMemo(() => (
+    rows
+      .filter(item => item.tanggal && item.bank)
+      .sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || '') || normalizeBankName(a.bank).localeCompare(normalizeBankName(b.bank)))
+  ), [rows]);
+
+  const chartData = useMemo(() => {
+    const dates = Array.from(new Set(chartRows.map(item => item.tanggal))).sort();
+    const banks = Array.from(new Set(chartRows.map(item => normalizeBankName(item.bank)).filter(Boolean))).sort();
+    return { dates, banks };
+  }, [chartRows]);
+
+  const exportToExcel = () => {
+    if (filteredRows.length === 0) {
+      toast.error('Tidak ada data untuk diekspor');
+      return;
+    }
+
+    const dataToExport = filteredRows.map((item, index) => ({
+      No: index + 1,
+      Tanggal: formatDateLabel(item.tanggal),
+      'No Rekening': item.noRekening,
+      Bank: item.bank,
+      'Nomor GL': item.nomorGL,
+      'Saldo Sistem': item.saldoSistem,
+      'Saldo Bank': item.saldoBank,
+      Selisih: item.selisih,
+      PIC: item.pic,
+      Keterangan: item.keterangan,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    worksheet['!cols'] = [
+      { wch: 5 },
+      { wch: 16 },
+      { wch: 22 },
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 32 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Saldo Bank Harian');
+    XLSX.writeFile(workbook, `Saldo_Bank_Harian_${startDate || 'awal'}_${endDate || 'akhir'}.xlsx`);
+    toast.success('File Excel berhasil diunduh');
+    setIsExportOpen(false);
+  };
+
+  const exportToPDF = () => {
+    if (filteredRows.length === 0) {
+      toast.error('Tidak ada data untuk diekspor');
+      return;
+    }
+
+    const doc = new jsPDF('l', 'mm', 'a4');
+    const today = new Date().toISOString().split('T')[0];
+
+    doc.setFontSize(16);
+    doc.text(`Laporan Saldo Bank Harian - ${today}`, 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Periode: ${startDate || '-'} s/d ${endDate || '-'}`, 14, 22);
+
+    autoTable(doc, {
+      head: [['Tanggal', 'No Rekening', 'Bank', 'Nomor GL', 'Saldo Sistem', 'Saldo Bank', 'Selisih', 'PIC', 'Keterangan']],
+      body: filteredRows.map(item => [
+        formatDateLabel(item.tanggal),
+        item.noRekening,
+        item.bank,
+        item.nomorGL,
+        formatCurrency(item.saldoSistem),
+        formatCurrency(item.saldoBank),
+        formatCurrency(item.selisih),
+        item.pic,
+        item.keterangan,
+      ]),
+      startY: 30,
+      theme: 'grid',
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [0, 82, 69] },
+    });
+
+    doc.save(`Saldo_Bank_Harian_${startDate || 'awal'}_${endDate || 'akhir'}.pdf`);
+    toast.success('Laporan PDF berhasil diunduh');
+    setIsExportOpen(false);
+  };
+
+  const renderLineChart = () => {
+    const { dates, banks } = chartData;
+    if (dates.length === 0 || banks.length === 0) {
+      return (
+        <div className="h-72 flex flex-col items-center justify-center text-gray-400">
+          <Landmark className="w-10 h-10 opacity-20 mb-2" />
+          <p className="text-sm italic">Belum ada data Saldo Bank Harian.</p>
+        </div>
+      );
+    }
+
+    const width = 980;
+    const height = 320;
+    const padding = { top: 34, right: 44, bottom: 60, left: 82 };
+    const values = chartRows.map(item => item.saldoBank);
+    const minValue = Math.min(0, ...values);
+    const maxValue = Math.max(1, ...values);
+    const span = maxValue - minValue || 1;
+    const plotWidth = width - padding.left - padding.right;
+    const plotHeight = height - padding.top - padding.bottom;
+    const xFor = (index: number) => padding.left + (dates.length === 1 ? plotWidth / 2 : (index / (dates.length - 1)) * plotWidth);
+    const yFor = (value: number) => padding.top + plotHeight - ((value - minValue) / span) * plotHeight;
+    const smoothPath = (points: { x: number; y: number }[]) => {
+      if (points.length === 0) return '';
+      if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+      return points.reduce((path, point, index) => {
+        if (index === 0) return `M ${point.x} ${point.y}`;
+        const previous = points[index - 1];
+        const controlX = (previous.x + point.x) / 2;
+        return `${path} C ${controlX} ${previous.y}, ${controlX} ${point.y}, ${point.x} ${point.y}`;
+      }, '');
+    };
+
+    return (
+      <div className="relative overflow-x-auto rounded-xl bg-gradient-to-br from-white via-white to-emerald-50/50 px-2 pt-2">
+        {chartTooltip && (
+          <div
+            className="pointer-events-none absolute z-30 -translate-x-1/2 -translate-y-[115%] rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-2xl"
+            style={{
+              left: `${Math.min(96, Math.max(8, (chartTooltip.x / width) * 100))}%`,
+              top: `${Math.min(90, Math.max(14, (chartTooltip.y / height) * 100))}%`,
+            }}
+          >
+            <div className="text-[10px] font-black uppercase tracking-widest text-[#009B4F]">{chartTooltip.bank}</div>
+            <div className="text-xs font-semibold text-gray-500">{formatDateLabel(chartTooltip.tanggal)}</div>
+            <div className="mt-1 text-sm font-black text-gray-900">{formatCurrency(chartTooltip.value)}</div>
+          </div>
+        )}
+
+        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[820px] w-full h-80">
+          <defs>
+            <filter id="saldo-line-shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#0f172a" floodOpacity="0.16" />
+            </filter>
+          </defs>
+          {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+            const value = minValue + span * tick;
+            const y = yFor(value);
+            return (
+              <g key={tick}>
+                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#e5e7eb" strokeDasharray="4 4" />
+                <text x={padding.left - 10} y={y + 4} textAnchor="end" className="fill-gray-400 text-[11px] font-semibold">
+                  {formatShortCurrency(value)}
+                </text>
+              </g>
+            );
+          })}
+
+          {dates.map((tanggal, index) => (
+            <g key={tanggal}>
+              <line x1={xFor(index)} y1={padding.top} x2={xFor(index)} y2={height - padding.bottom} stroke="#f3f4f6" />
+              <text x={xFor(index)} y={height - 22} textAnchor="middle" className="fill-gray-500 text-[10px] font-bold">
+                {formatDateLabel(tanggal).replace(' 2026', '')}
+              </text>
+            </g>
+          ))}
+
+          {banks.map((bankName, bankIndex) => {
+            const bankRows = chartRows.filter(item => normalizeBankName(item.bank) === bankName);
+            const bankColor = getBankColor(bankName);
+            const points = bankRows.map(item => ({
+              row: item,
+              x: xFor(dates.indexOf(item.tanggal)),
+              y: yFor(item.saldoBank),
+            }));
+
+            return (
+              <g key={bankName}>
+                <path
+                  d={smoothPath(points)}
+                  fill="none"
+                  stroke={bankColor}
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  filter="url(#saldo-line-shadow)"
+                />
+                {points.map(({ row, x, y }) => {
+                  return (
+                    <circle
+                      key={`${bankName}-${row.tanggal}`}
+                      cx={x}
+                      cy={y}
+                      r="5"
+                      fill="white"
+                      stroke={bankColor}
+                      strokeWidth="3"
+                      className="cursor-pointer transition-all hover:r-7"
+                      onMouseEnter={() => setChartTooltip({ bank: row.bank, tanggal: row.tanggal, value: row.saldoBank, x, y })}
+                      onMouseLeave={() => setChartTooltip(null)}
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+
+        <div className="flex flex-wrap items-center gap-3 px-2 pb-2">
+          {banks.map((bankName) => (
+            <div key={bankName} className="flex items-center gap-2 text-xs font-bold text-gray-600">
+              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: getBankColor(bankName) }} />
+              {bankName}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex bg-[#f9fafb]">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 py-1 flex-1">
+          <div>
+            <h2 className="text-xl font-bold text-gray-800 tracking-tight">Saldo Bank Harian</h2>
+            <p className="text-xs text-gray-500">Trend dan rekapitulasi saldo akhir bank harian dari sheet SaldoHarian.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-gray-800 text-base">Trend Saldo Bank</h3>
+            <p className="text-xs text-gray-500 mt-1">Grafik otomatis menampilkan seluruh data Saldo Bank Harian.</p>
+          </div>
+          <button
+            onClick={() => fetchSaldoRows()}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-emerald-50 hover:text-[#009B4F] transition-colors text-xs font-bold cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh Chart
+          </button>
+        </div>
+        <div className="p-4">
+          {isLoading && rows.length === 0 ? (
+            <div className="h-72 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-[#009B4F] animate-spin" />
+            </div>
+          ) : renderLineChart()}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-4 rounded-xl border border-gray-200 items-end">
+          <div className="md:col-span-2 space-y-2">
+            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Rentang Tanggal</label>
+            <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 h-[42px] focus-within:ring-2 focus-within:ring-[#009B4F]/20 focus-within:border-[#009B4F] transition-all">
+              <Calendar className="w-4 h-4 text-gray-400 shrink-0" />
+              <input
+                type="date"
+                value={startDate}
+                onChange={(event) => {
+                  setStartDate(event.target.value);
+                  setShowData(false);
+                }}
+                className="outline-none text-xs w-full bg-transparent font-medium text-gray-700"
+              />
+              <span className="text-gray-300">/</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(event) => {
+                  setEndDate(event.target.value);
+                  setShowData(false);
+                }}
+                className="outline-none text-xs w-full bg-transparent font-medium text-gray-700"
+              />
+            </div>
+          </div>
+
+          <div className="md:col-span-3 flex flex-wrap items-center justify-end gap-3">
+            <button
+              onClick={resetFilters}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors text-xs font-bold cursor-pointer"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Reset Filter
+            </button>
+            {showData && (
+              <button
+                onClick={handleTampilkanData}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-emerald-50 hover:text-[#009B4F] transition-colors text-xs font-bold cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh Data
+              </button>
+            )}
+            {showData && (
+              <div className="relative">
+                <button
+                  onClick={() => setIsExportOpen(prev => !prev)}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#009B4F] text-white rounded-lg hover:bg-[#008543] transition-all shadow-md shadow-[#009B4F]/10 text-xs font-bold cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  Export File
+                </button>
+                {isExportOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 z-50">
+                    <button
+                      onClick={exportToExcel}
+                      className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-emerald-50 hover:text-[#009B4F] transition-colors"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                      Excel (.xlsx)
+                    </button>
+                    <button
+                      onClick={exportToPDF}
+                      className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-emerald-50 hover:text-[#009B4F] transition-colors"
+                    >
+                      <FileText className="w-4 h-4 text-red-600" />
+                      PDF (.pdf)
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              onClick={handleTampilkanData}
+              disabled={isLoading}
+              className="flex items-center justify-center gap-2 px-5 h-[38px] bg-[#009B4F] text-white rounded-lg hover:bg-[#008543] transition-all shadow-md text-xs font-bold cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:cursor-wait"
+            >
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              Tampilkan Data
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {showData && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-4 border-b border-gray-100">
+              <h3 className="font-bold text-gray-800 text-base">Rekapitulasi Saldo Bank Harian</h3>
+            </div>
+            <div className="overflow-x-auto max-h-[calc(100vh-360px)]">
+              <table className="w-full text-sm border-collapse min-w-[1180px]">
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-[#005245] border-b border-[#004237]">
+                    <th rowSpan={2} className="text-center py-4 px-4 font-black text-white uppercase text-[10px] tracking-widest border-r border-[#004237]/50">Tanggal</th>
+                    <th rowSpan={2} className="text-center py-4 px-4 font-black text-white uppercase text-[10px] tracking-widest border-r border-[#004237]/50">No Rekening</th>
+                    <th rowSpan={2} className="text-center py-4 px-4 font-black text-white uppercase text-[10px] tracking-widest border-r border-[#004237]/50">Bank</th>
+                    <th rowSpan={2} className="text-center py-4 px-4 font-black text-white uppercase text-[10px] tracking-widest border-r border-[#004237]/50">Nomor GL</th>
+                    <th colSpan={2} className="text-center py-2 px-4 font-black text-white uppercase text-[10px] tracking-widest border-r border-[#004237]/50">Saldo</th>
+                    <th rowSpan={2} className="text-center py-4 px-4 font-black text-white uppercase text-[10px] tracking-widest border-r border-[#004237]/50">Selisih</th>
+                    <th rowSpan={2} className="text-center py-4 px-4 font-black text-white uppercase text-[10px] tracking-widest border-r border-[#004237]/50">PIC</th>
+                    <th rowSpan={2} className="text-center py-4 px-4 font-black text-white uppercase text-[10px] tracking-widest">Keterangan</th>
+                  </tr>
+                  <tr className="bg-[#005245] border-b border-[#004237]">
+                    <th className="text-center py-2 px-4 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50">Sistem</th>
+                    <th className="text-center py-2 px-4 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50">Bank</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {!isLoading && groupedByDate.length > 0 ? groupedByDate.map(group => (
+                    group.rows.map((item, index) => (
+                      <tr key={`${group.tanggal}-${item.bank}-${index}`} className={`transition-colors group ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-emerald-50/40`}>
+                        {index === 0 && (
+                          <td rowSpan={group.rows.length} className="text-center py-2 px-4 font-black text-gray-800 border-r border-gray-50 align-middle text-[13px]">
+                            {formatDateLabel(group.tanggal)}
+                          </td>
+                        )}
+                        <td className="py-2 px-4 text-gray-600 border-r border-gray-50 font-mono text-[13px]">{item.noRekening}</td>
+                        <td className="py-2 px-4 text-gray-800 border-r border-gray-50 font-bold text-[13px]">{item.bank}</td>
+                        <td className="py-2 px-4 text-gray-600 border-r border-gray-50 font-mono text-[13px]">{item.nomorGL}</td>
+                        <td className="py-2 px-4 text-right text-gray-900 border-r border-gray-50 font-mono font-black text-[13px]">{item.saldoSistem ? formatCurrency(item.saldoSistem) : ''}</td>
+                        <td className="py-2 px-4 text-right text-gray-900 border-r border-gray-50 font-mono font-black text-[13px]">{item.saldoBank ? formatCurrency(item.saldoBank) : ''}</td>
+                        <td className={`py-2 px-4 text-right border-r border-gray-50 font-mono font-black text-[13px] ${Math.abs(item.selisih) < 1 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(item.selisih)}</td>
+                        <td className="py-2 px-4 text-gray-800 border-r border-gray-50 font-normal uppercase text-[13px]">{item.pic}</td>
+                        <td className="py-2 px-4 text-gray-700 text-[13px]">{item.keterangan}</td>
+                      </tr>
+                    ))
+                  )) : (
+                    <tr>
+                      <td colSpan={9} className="py-20 text-center">
+                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                          <Search className="w-8 h-8 opacity-20" />
+                          <p className="text-sm italic">Tidak ada data Saldo Harian pada rentang tanggal ini.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="bg-white border-t border-gray-100 px-6 py-3 flex items-center justify-between">
+              <div className="text-xs text-gray-500 font-medium">
+                Menampilkan <span className="text-gray-900 font-bold">{filteredRows.length}</span> baris dari <span className="text-gray-900 font-bold">{groupedByDate.length}</span> tanggal.
+              </div>
+              <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                Sumber: SaldoHarian
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

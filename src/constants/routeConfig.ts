@@ -9,6 +9,7 @@ export const TAB_TO_PATH: Record<string, string> = {
   'data-rekon-bri': '/rekonsiliasi-bank/bri/data-rekon',
   'rekon-bsi': '/rekonsiliasi-bank/bsi/proses-rekon',
   'data-rekon-bsi': '/rekonsiliasi-bank/bsi/data-rekon',
+  'saldo-harian': '/rekonsiliasi-bank/saldo-harian',
   'hutang': '/hutang-operasional',
   'report': '/report',
   'user-management': '/settings/user-management',

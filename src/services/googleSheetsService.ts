@@ -222,6 +222,53 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Creates a sheet if it does not exist and returns its sheet ID.
+   */
+  async ensureSheet(spreadsheetId: string, sheetName: string): Promise<number> {
+    const existingSheetId = await this.getSheetIdByName(spreadsheetId, sheetName);
+    if (existingSheetId !== null) return existingSheetId;
+
+    if (!this.accessToken) {
+      await this.authorize();
+    }
+
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              addSheet: {
+                properties: {
+                  title: sheetName,
+                },
+              },
+            },
+          ],
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error.message || `Failed to create sheet ${sheetName}`);
+    }
+
+    const data = await response.json();
+    const createdSheetId = data.replies?.[0]?.addSheet?.properties?.sheetId;
+    if (typeof createdSheetId !== 'number') {
+      throw new Error(`Sheet ${sheetName} berhasil dibuat, tetapi sheetId tidak ditemukan`);
+    }
+
+    return createdSheetId;
+  }
+
+  /**
    * Deletes a row using batchUpdate.
    */
   async deleteRow(spreadsheetId: string, sheetId: number, rowIndex: number) {

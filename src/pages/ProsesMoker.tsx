@@ -8,6 +8,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { cabangService } from '../services/cabangService';
 import { norekService, NoRekMapping } from '../services/norekService';
 import { plafonService } from '../services/plafonService';
+import { saldoHarianService } from '../services/saldoHarianService';
 
 interface MokerData {
   id: string;
@@ -17,6 +18,7 @@ interface MokerData {
   cabang: string;
   bank: string;
   type: 'dropping' | 'pooling';
+  balance?: number;
 }
 
 interface BniSystemData {
@@ -26,6 +28,7 @@ interface BniSystemData {
   nominal: number;
   cabang: string;
   docNumber: string;
+  balance?: number;
 }
 
 const parseExcelDate = (excelDate: any) => {
@@ -480,6 +483,7 @@ export function ProsesMoker() {
       const textUtama = String(row[4] || "").trim(); // Col E
       const longText = String(row[11] || "").trim(); // Col L
       const kredit = cleanAmount(row[8]); // Col I (Credit)
+      const balance = cleanAmount(row[9]); // Col J (Balance)
 
       const isCredit = Math.abs(kredit) > 0;
       const startsWith6 = docNumber.startsWith('6');
@@ -515,7 +519,8 @@ export function ProsesMoker() {
           keterangan: ket.replace(/\s+/g, ' ').trim(),
           nominal: Math.abs(kredit),
           cabang: namaCabang,
-          docNumber: docNumber
+          docNumber: docNumber,
+          balance
         });
 
         i = j - 1;
@@ -588,6 +593,7 @@ export function ProsesMoker() {
       const amountRaw = row[21];
       const dcRaw = String(row[23] || "").trim().toUpperCase();
       const amount = cleanAmount(amountRaw);
+      const balance = cleanAmount(row[24]);
       
       if (tanggalRaw && !isNaN(amount) && amount > 0) {
         let j = i + 1;
@@ -610,7 +616,8 @@ export function ProsesMoker() {
           nominal: amount,
           cabang: getCabang(ket, 'BNI'),
           bank: 'BNI',
-          type: dcFinal === 'D' ? 'dropping' : 'pooling'
+          type: dcFinal === 'D' ? 'dropping' : 'pooling',
+          balance
         });
         i = j - 1;
       }
@@ -644,6 +651,7 @@ export function ProsesMoker() {
       keterangan: 6, // G
       debit: 22,    // W
       kredit: 31,   // AF
+      balance: 38    // AM
     };
 
     if (startRow > 0) {
@@ -654,6 +662,7 @@ export function ProsesMoker() {
         if (val.includes("KETERANGAN") || val.includes("REMARK") || val.includes("DESCRIPTION")) colIdx.keterangan = idx;
         if (val.includes("DEBET") || val.includes("DEBIT")) colIdx.debit = idx;
         if (val.includes("KREDIT") || val.includes("CREDIT")) colIdx.kredit = idx;
+        if (val.includes("SALDO") || val.includes("BALANCE")) colIdx.balance = idx;
       });
     }
 
@@ -665,6 +674,7 @@ export function ProsesMoker() {
       let ket = String(row[colIdx.keterangan] || "").trim();
       const debit = cleanAmount(row[colIdx.debit]);
       const kredit = cleanAmount(row[colIdx.kredit]);
+      const balance = cleanAmount(row[colIdx.balance]);
       
       let amount = 0;
       let dcFinal = "";
@@ -707,7 +717,8 @@ export function ProsesMoker() {
           nominal: amount,
           cabang: getCabang(ket, 'BRI'),
           bank: 'BRI',
-          type: dcFinal === 'D' ? 'dropping' : 'pooling'
+          type: dcFinal === 'D' ? 'dropping' : 'pooling',
+          balance
         });
         
         i = j - 1;
@@ -739,6 +750,7 @@ export function ProsesMoker() {
       const amountRaw = row[4]; // Col E
       const dbRaw = String(row[5] || "").trim().toUpperCase(); // Col F
       const crRaw = String(row[6] || "").trim().toUpperCase(); // Col G
+      const balance = cleanAmount(row[7]); // Col H
 
       const amount = cleanAmount(amountRaw);
       
@@ -754,7 +766,8 @@ export function ProsesMoker() {
           nominal: amount,
           cabang: getCabang(ket, 'BSI'),
           bank: 'BSI',
-          type: dcFinal === 'D' ? 'dropping' : 'pooling'
+          type: dcFinal === 'D' ? 'dropping' : 'pooling',
+          balance
         });
       }
     }
@@ -781,6 +794,11 @@ export function ProsesMoker() {
     } else if (bank === 'BNI_SYSTEM') {
       setBniSystemData(prev => prev.map(item => item.id === id ? { ...item, cabang: newCabang } : item));
     }
+  };
+
+  const getEndingBalance = (rows: Array<{ balance?: number }>) => {
+    const lastWithBalance = [...rows].reverse().find(item => typeof item.balance === 'number');
+    return lastWithBalance?.balance ?? null;
   };
 
   const handleSaveMoker = async () => {
@@ -830,6 +848,42 @@ export function ProsesMoker() {
 
       await googleSheetsService.insertRows(spreadsheetId, sheetId, 1, allRows.length);
       await googleSheetsService.updateData(spreadsheetId, `RekapMoker!A2`, allRows);
+
+      const saldoUpdates = [
+        ...(bniSystemData.length > 0 && getEndingBalance(bniSystemData) !== null
+          ? [{
+              tanggal: bniSystemData[0].tanggal,
+              bank: 'BNI',
+              saldoSistem: getEndingBalance(bniSystemData),
+            }]
+          : []),
+        ...(bniData.length > 0 && getEndingBalance(bniData) !== null
+          ? [{
+              tanggal: bniData[0].tanggal,
+              bank: 'BNI',
+              saldoBank: getEndingBalance(bniData),
+            }]
+          : []),
+        ...(briData.length > 0 && getEndingBalance(briData) !== null
+          ? [{
+              tanggal: briData[0].tanggal,
+              bank: 'BRI',
+              saldoBank: getEndingBalance(briData),
+            }]
+          : []),
+        ...(bsiData.length > 0 && getEndingBalance(bsiData) !== null
+          ? [{
+              tanggal: bsiData[0].tanggal,
+              bank: 'BSI',
+              saldoBank: getEndingBalance(bsiData),
+            }]
+          : []),
+      ];
+
+      if (saldoUpdates.length > 0) {
+        setLoadingMessage('Menyimpan Saldo Harian...');
+        await saldoHarianService.upsertMany(spreadsheetId, saldoUpdates);
+      }
 
       toast.success('Rekap Moker berhasil disimpan');
       addNotification('Simpan Rekap Moker Berhasil', `Berhasil menyimpan ${allRows.length} data rekap moker ke Google Sheets.`, 'success');

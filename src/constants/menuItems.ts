@@ -68,6 +68,7 @@ export const BASE_MENU_ITEMS: MenuItem[] = [
           { id: 'data-rekon-bsi', label: 'Data Rekon' },
         ],
       },
+      { id: 'saldo-harian', label: 'Saldo Harian' },
     ],
   },
   { id: 'hutang', label: 'Hutang Operasional Lain', icon: FileText },

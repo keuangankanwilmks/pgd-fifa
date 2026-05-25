@@ -10,6 +10,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 
 import { norekService, NoRekMapping } from '../services/norekService';
 import { cabangService } from '../services/cabangService';
+import { saldoHarianService } from '../services/saldoHarianService';
 
 // --- Types ---
 interface SistemData {
@@ -1384,6 +1385,16 @@ export function RekonBNI({
           await googleSheetsService.appendData(spreadsheetId, 'RekonData!A1', othersToAppend);
         }
       }
+
+      // 5. Upsert daily ending balances into SaldoHarian.
+      setLoadingMessage('Menyimpan Saldo Harian...');
+      const saldoTanggal = Array.from(datesInSession).sort()[0] || new Date().toISOString().split('T')[0];
+      await saldoHarianService.upsert(spreadsheetId, {
+        tanggal: saldoTanggal,
+        bank,
+        saldoBank: rekonResult.analisa.balanceAkhirBank,
+        saldoSistem: rekonResult.analisa.balanceAkhirSistem,
+      });
 
       toast.success('Data berhasil disimpan ke Google Sheets');
       addNotification(

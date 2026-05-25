@@ -7,6 +7,8 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, setPersistence, inMemoryPersistence } from 'firebase/auth';
 import toast from 'react-hot-toast';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
+import { AnimatedModal } from '../components/AnimatedModal';
 import {
   DEFAULT_ROLE_ACCESS_CONFIGS,
   getAllLeafMenuItems,
@@ -121,6 +123,11 @@ export function UserManagement({
     setIsModalOpen(false);
     setEditingUser(null);
   };
+
+  useEscapeToClose(isAccessModalOpen && !isSavingAccess && !alertMessage && !deleteConfirmUser, () => setIsAccessModalOpen(false));
+  useEscapeToClose(isModalOpen && !alertMessage && !deleteConfirmUser, handleCloseModal);
+  useEscapeToClose(!!alertMessage, () => setAlertMessage(null));
+  useEscapeToClose(!!deleteConfirmUser, () => setDeleteConfirmUser(null));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -415,8 +422,7 @@ export function UserManagement({
         </div>
       </div>
 
-      {isAccessModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <AnimatedModal isOpen={isAccessModalOpen} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
             <div className="flex flex-col justify-between gap-3 border-b border-gray-100 bg-gray-50/50 p-5 sm:flex-row sm:items-center">
               <div>
@@ -527,11 +533,9 @@ export function UserManagement({
               </div>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <AnimatedModal isOpen={isModalOpen} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/50 p-5">
               <h2 className="text-lg font-bold text-gray-800">
@@ -626,11 +630,9 @@ export function UserManagement({
               </div>
             </form>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-      {alertMessage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <AnimatedModal isOpen={!!alertMessage} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl">
             <div className="flex flex-col items-center gap-4 p-6 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-500">
@@ -648,11 +650,10 @@ export function UserManagement({
               </button>
             </div>
           </div>
-        </div>
-      )}
+      </AnimatedModal>
 
-      {deleteConfirmUser && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <AnimatedModal isOpen={!!deleteConfirmUser} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        {deleteConfirmUser ? (
           <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl">
             <div className="flex flex-col items-center gap-4 p-6 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-500">
@@ -680,8 +681,8 @@ export function UserManagement({
               </div>
             </div>
           </div>
-        </div>
-      )}
+        ) : <div />}
+      </AnimatedModal>
     </div>
   );
 }

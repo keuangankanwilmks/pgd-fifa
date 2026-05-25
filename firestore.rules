@@ -35,6 +35,14 @@
 //   - label: string (required) - Display name
 //   - url: string (required, format: uri) - App URL
 //
+// Collection: gl_bank
+// Document ID: {bankId}
+// Fields:
+//   - bank: string (required) - Bank name/code
+//   - noRekening: string (optional) - Bank account number
+//   - nomorGL: string (required) - GL number
+//   - pic: string (required) - Person in charge
+//
 // ===============================================================
 
 rules_version = '2';
@@ -100,6 +108,11 @@ service cloud.firestore {
     }
 
     match /supporting_apps/{appId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /gl_bank/{mappingId} {
       allow read: if true;
       allow write: if isAdmin();
     }

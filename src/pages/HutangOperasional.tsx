@@ -866,10 +866,10 @@ export function HutangOperasional() {
               <button
                 onClick={resetFilters}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600 transition-colors hover:bg-red-50 hover:text-red-600"
-                title="Reset Filter"
+                title="Reset"
               >
                 <XCircle className="h-4 w-4" />
-                Reset Filter
+                Reset
               </button>
               <button
                 onClick={fetchData}

@@ -427,10 +427,10 @@ export function DataMoker({ currentUser }: DataMokerProps) {
               <button 
                 onClick={resetFilters}
                 className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors text-xs font-bold cursor-pointer"
-                title="Reset Filter"
+                title="Reset"
               >
                 <XCircle className="w-4 h-4" />
-                Reset Filter
+                Reset
               </button>
               <button 
                 onClick={fetchData}

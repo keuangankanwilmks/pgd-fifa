@@ -324,7 +324,7 @@ export function SaldoHarian() {
             <div className="flex items-center gap-2">
               <button onClick={resetFilters} className="flex cursor-pointer items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600 transition-colors hover:bg-red-50 hover:text-red-600">
                 <XCircle className="h-4 w-4" />
-                Reset Filter
+                Reset
               </button>
               <button onClick={fetchData} className={`cursor-pointer rounded-lg bg-gray-50 p-2 text-gray-500 transition-colors hover:bg-gray-100 ${isLoading ? 'animate-spin' : ''}`}>
                 <RefreshCw className="h-4 w-4" />

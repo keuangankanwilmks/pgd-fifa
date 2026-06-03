@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Edit2, Globe, Link as LinkIcon, Loader2, Database, RefreshCw, ChevronUp, ChevronDown, X, Table2, Columns3, Mail, RotateCcw, MessageCircle } from 'lucide-react';
+import { Save, Plus, Trash2, Edit2, Globe, Link as LinkIcon, Loader2, Database, RefreshCw, ChevronUp, ChevronDown, X, Table2, Columns3, Mail, RotateCcw, MessageCircle, FileSpreadsheet } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc } from 'firebase/firestore';
@@ -7,6 +7,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { blastTemplateService, defaultBlastEmailTemplate, defaultBlastWhatsAppTemplate } from '../services/blastTemplateService';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { AnimatedModal } from '../components/AnimatedModal';
+import { uploadExcelConfigService, type UploadExcelConfigMap } from '../services/uploadExcelConfigService';
 
 interface AppLink {
   id: string;
@@ -17,7 +18,7 @@ interface AppLink {
 }
 
 interface SettingsProps {
-  type: 'supporting-apps' | 'general' | 'template-blast' | 'template-blast-whatsapp';
+  type: 'supporting-apps' | 'general' | 'upload-excel' | 'template-blast' | 'template-blast-whatsapp';
 }
 
 interface DataEditorConfig {
@@ -58,6 +59,9 @@ export function Settings({ type }: SettingsProps) {
   const [blastWhatsAppTemplate, setBlastWhatsAppTemplate] = useState(defaultBlastWhatsAppTemplate);
   const [isBlastTemplateLoading, setIsBlastTemplateLoading] = useState(false);
   const [isBlastTemplateSaving, setIsBlastTemplateSaving] = useState(false);
+  const [uploadExcelConfigs, setUploadExcelConfigs] = useState<UploadExcelConfigMap>({});
+  const [isUploadConfigLoading, setIsUploadConfigLoading] = useState(false);
+  const [isUploadConfigSaving, setIsUploadConfigSaving] = useState(false);
 
   useEffect(() => {
     if (type !== 'supporting-apps') {
@@ -97,6 +101,53 @@ export function Settings({ type }: SettingsProps) {
       })
       .finally(() => setIsBlastTemplateLoading(false));
   }, [type]);
+
+  useEffect(() => {
+    if (type !== 'upload-excel') return;
+
+    setIsUploadConfigLoading(true);
+    uploadExcelConfigService.getConfigs()
+      .then(setUploadExcelConfigs)
+      .catch(error => {
+        console.error('Upload excel config load error:', error);
+        toast.error('Gagal memuat konfigurasi upload excel');
+      })
+      .finally(() => setIsUploadConfigLoading(false));
+  }, [type]);
+
+  const updateUploadConfig = (id: string, field: 'firstDataRow' | string, value: string) => {
+    const numericValue = Number(value);
+    setUploadExcelConfigs(prev => {
+      const item = prev[id];
+      if (!item) return prev;
+      if (field === 'firstDataRow') {
+        return { ...prev, [id]: { ...item, firstDataRow: Number.isFinite(numericValue) ? numericValue : 0 } };
+      }
+      return {
+        ...prev,
+        [id]: {
+          ...item,
+          columns: {
+            ...item.columns,
+            [field]: Number.isFinite(numericValue) ? numericValue : 0,
+          },
+        },
+      };
+    });
+  };
+
+  const saveUploadExcelConfigs = async () => {
+    setIsUploadConfigSaving(true);
+    try {
+      await uploadExcelConfigService.saveConfigs(uploadExcelConfigs);
+      toast.success('Konfigurasi upload excel berhasil disimpan');
+    } catch (error) {
+      console.error('Upload excel config save error:', error);
+      toast.error('Gagal menyimpan konfigurasi upload excel');
+    } finally {
+      setIsUploadConfigSaving(false);
+    }
+  };
 
   const renderBlastTemplatePreview = () => {
     const detailRows = `
@@ -636,6 +687,95 @@ export function Settings({ type }: SettingsProps) {
               <div dangerouslySetInnerHTML={{ __html: renderBlastTemplatePreview() }} />
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'upload-excel') {
+    const configs = Object.values(uploadExcelConfigs);
+    const groups = Array.from(new Set(configs.map(item => item.group)));
+
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-emerald-50 p-2 text-[#009B4F]">
+                <FileSpreadsheet className="h-6 w-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Set Upload Excel</h2>
+                <p className="text-sm text-gray-500">Atur baris awal dan index kolom pembacaan file upload Proses Moker dan Proses Rekon.</p>
+              </div>
+            </div>
+            <button
+              onClick={saveUploadExcelConfigs}
+              disabled={isUploadConfigSaving || isUploadConfigLoading}
+              className="flex w-fit items-center gap-2 rounded-lg bg-[#009B4F] px-4 py-2 text-xs font-bold text-white shadow-md shadow-[#009B4F]/10 transition-colors hover:bg-[#008543] disabled:opacity-50"
+            >
+              {isUploadConfigSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Simpan
+            </button>
+          </div>
+
+          {isUploadConfigLoading ? (
+            <div className="flex h-64 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-[#009B4F]" />
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {groups.map(group => (
+                <div key={group} className="overflow-hidden rounded-xl border border-gray-100">
+                  <div className="border-b border-gray-100 bg-gray-50 px-4 py-3">
+                    <h3 className="text-sm font-black text-gray-800">{group}</h3>
+                    <p className="mt-1 text-xs text-gray-500">Index menggunakan basis 0. Contoh kolom A = 0, B = 1, C = 2.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[980px] border-collapse bg-white text-xs">
+                      <thead>
+                        <tr className="bg-[#005245]">
+                          <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Jenis Upload</th>
+                          <th className="border border-[#004237] px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">Baris Pertama</th>
+                          <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Index Kolom</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {configs.filter(item => item.group === group).map(item => (
+                          <tr key={item.id} className="odd:bg-white even:bg-gray-50/70">
+                            <td className="border border-gray-200 px-3 py-2 font-bold text-gray-800">{item.label}</td>
+                            <td className="border border-gray-200 p-1">
+                              <input
+                                type="number"
+                                value={item.firstDataRow}
+                                onChange={(event) => updateUploadConfig(item.id, 'firstDataRow', event.target.value)}
+                                className="h-8 w-full rounded border border-gray-200 px-2 text-center text-xs outline-none focus:border-[#009B4F]"
+                              />
+                            </td>
+                            <td className="border border-gray-200 px-3 py-2">
+                              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                                {Object.entries(item.columns).map(([column, value]) => (
+                                  <label key={`${item.id}-${column}`} className="flex items-center gap-2 rounded-lg border border-gray-100 bg-white px-2 py-1">
+                                    <span className="min-w-0 flex-1 truncate text-[10px] font-black uppercase tracking-wider text-gray-500">{column}</span>
+                                    <input
+                                      type="number"
+                                      value={value}
+                                      onChange={(event) => updateUploadConfig(item.id, column, event.target.value)}
+                                      className="h-7 w-16 rounded border border-gray-200 px-2 text-center text-xs outline-none focus:border-[#009B4F]"
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );

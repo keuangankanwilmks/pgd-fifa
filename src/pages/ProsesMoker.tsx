@@ -9,6 +9,7 @@ import { cabangService } from '../services/cabangService';
 import { norekService, NoRekMapping } from '../services/norekService';
 import { plafonService } from '../services/plafonService';
 import { saldoHarianService } from '../services/saldoHarianService';
+import { DEFAULT_UPLOAD_EXCEL_CONFIGS, uploadExcelConfigService, type UploadExcelConfigMap } from '../services/uploadExcelConfigService';
 
 interface MokerData {
   id: string;
@@ -125,6 +126,7 @@ export function ProsesMoker() {
   const [cabangOptions, setCabangOptions] = useState<{ value: string; label: string }[]>([]);
   const [norekMappings, setNorekMappings] = useState<NoRekMapping[]>([]);
   const [plafonData, setPlafonData] = useState<Record<string, number>>({});
+  const [uploadExcelConfigs, setUploadExcelConfigs] = useState<UploadExcelConfigMap>(DEFAULT_UPLOAD_EXCEL_CONFIGS);
 
   useEffect(() => {
     const loadPlafon = async () => {
@@ -234,6 +236,16 @@ export function ProsesMoker() {
   useEffect(() => {
     fetchData(false); // Initial fetch without loading indicator
   }, []);
+
+  useEffect(() => {
+    uploadExcelConfigService.getConfigs()
+      .then(setUploadExcelConfigs)
+      .catch(error => {
+        console.error('Error loading upload excel config:', error);
+      });
+  }, []);
+
+  const getUploadConfig = (id: string) => uploadExcelConfigs[id] || DEFAULT_UPLOAD_EXCEL_CONFIGS[id];
 
   const getCabang = (keterangan: string, bankName: string) => {
     if (!keterangan) return "-";
@@ -472,18 +484,19 @@ export function ProsesMoker() {
   };
 
   const parseBniSystem = (data: any[][]) => {
+    const config = getUploadConfig('moker-sistem');
+    const col = config.columns;
     const result: BniSystemData[] = [];
-    // Start from row 12 as per RekonBNI.tsx parseSistem
-    for (let i = 12; i < data.length; i++) {
+    for (let i = config.firstDataRow; i < data.length; i++) {
       const row = data[i];
       if (!row || row.length < 9) continue;
 
-      const tanggalRaw = row[0]; // Col A
-      const docNumber = String(row[5] || "").trim(); // Col F
-      const textUtama = String(row[4] || "").trim(); // Col E
-      const longText = String(row[11] || "").trim(); // Col L
-      const kredit = cleanAmount(row[8]); // Col I (Credit)
-      const balance = cleanAmount(row[9]); // Col J (Balance)
+      const tanggalRaw = row[col.tanggal];
+      const docNumber = String(row[col.docNumber] || "").trim();
+      const textUtama = String(row[col.textUtama] || "").trim();
+      const longText = String(row[col.longText] || "").trim();
+      const kredit = cleanAmount(row[col.kredit]);
+      const balance = cleanAmount(row[col.balance]);
 
       const isCredit = Math.abs(kredit) > 0;
       const startsWith6 = docNumber.startsWith('6');
@@ -496,9 +509,9 @@ export function ProsesMoker() {
         while (j < data.length) {
           const nextRow = data[j];
           if (!nextRow) break;
-          const nextTgl = String(nextRow[0] || "").trim();
-          const nextKetUtama = String(nextRow[4] || "").trim();
-          const nextLongText = String(nextRow[11] || "").trim();
+          const nextTgl = String(nextRow[col.tanggal] || "").trim();
+          const nextKetUtama = String(nextRow[col.textUtama] || "").trim();
+          const nextLongText = String(nextRow[col.longText] || "").trim();
           
           if (nextTgl === "" && (nextKetUtama !== "" || nextLongText !== "")) {
             const nextKet = nextKetUtama !== "" ? nextKetUtama : nextLongText;
@@ -583,25 +596,27 @@ export function ProsesMoker() {
   }, [bniData, bniSystemData]);
 
   const parseBankBNI = (data: any[][]) => {
+    const config = getUploadConfig('moker-bni-cms');
+    const col = config.columns;
     const rawResult: MokerData[] = [];
-    for (let i = 12; i < data.length; i++) {
+    for (let i = config.firstDataRow; i < data.length; i++) {
       const row = data[i];
       if (!row || row.length < 25) continue;
       
-      const tanggalRaw = row[7];
-      let ket = String(row[12] || "").trim();
-      const amountRaw = row[21];
-      const dcRaw = String(row[23] || "").trim().toUpperCase();
+      const tanggalRaw = row[col.tanggal];
+      let ket = String(row[col.keterangan] || "").trim();
+      const amountRaw = row[col.amount];
+      const dcRaw = String(row[col.dc] || "").trim().toUpperCase();
       const amount = cleanAmount(amountRaw);
-      const balance = cleanAmount(row[24]);
+      const balance = cleanAmount(row[col.balance]);
       
       if (tanggalRaw && !isNaN(amount) && amount > 0) {
         let j = i + 1;
         while (j < data.length) {
           const nextRow = data[j];
           if (!nextRow) break;
-          const nextTgl = String(nextRow[7] || "").trim();
-          const nextKet = String(nextRow[12] || "").trim();
+          const nextTgl = String(nextRow[col.tanggal] || "").trim();
+          const nextKet = String(nextRow[col.keterangan] || "").trim();
           if (nextTgl === "" && nextKet !== "") {
             ket += " " + nextKet;
             j++;
@@ -626,6 +641,7 @@ export function ProsesMoker() {
   };
 
   const parseBankBRI = (data: any[][]) => {
+    const config = getUploadConfig('moker-bri-cms');
     const result: MokerData[] = [];
     
     // Dynamically find the start row by looking for "Tanggal" or "Keterangan"
@@ -642,16 +658,16 @@ export function ProsesMoker() {
     }
 
     if (startRow === -1) {
-      startRow = 18;
+      startRow = config.firstDataRow;
     }
 
     // Try to find column indices from the header row
     let colIdx = {
-      tanggal: 2,   // C
-      keterangan: 6, // G
-      debit: 22,    // W
-      kredit: 31,   // AF
-      balance: 38    // AM
+      tanggal: config.columns.tanggal,
+      keterangan: config.columns.keterangan,
+      debit: config.columns.debit,
+      kredit: config.columns.kredit,
+      balance: config.columns.balance
     };
 
     if (startRow > 0) {
@@ -728,9 +744,11 @@ export function ProsesMoker() {
   };
 
   const parseBankBSI = (data: any[][]) => {
+    const config = getUploadConfig('moker-bsi-cms');
+    const col = config.columns;
     const result: MokerData[] = [];
     
-    let startRow = 12; // Default fallback
+    let startRow = config.firstDataRow;
     for (let i = 0; i < Math.min(data.length, 50); i++) {
       const row = data[i];
       if (!row) continue;
@@ -745,12 +763,12 @@ export function ProsesMoker() {
       const row = data[i];
       if (!row || row.length < 8) continue;
       
-      const tanggalRaw = row[0]; // Col A
-      const ket = String(row[2] || "").trim(); // Col C
-      const amountRaw = row[4]; // Col E
-      const dbRaw = String(row[5] || "").trim().toUpperCase(); // Col F
-      const crRaw = String(row[6] || "").trim().toUpperCase(); // Col G
-      const balance = cleanAmount(row[7]); // Col H
+      const tanggalRaw = row[col.tanggal];
+      const ket = String(row[col.keterangan] || "").trim();
+      const amountRaw = row[col.amount];
+      const dbRaw = String(row[col.db] || "").trim().toUpperCase();
+      const crRaw = String(row[col.cr] || "").trim().toUpperCase();
+      const balance = cleanAmount(row[col.balance]);
 
       const amount = cleanAmount(amountRaw);
       
@@ -1126,7 +1144,7 @@ export function ProsesMoker() {
               
               <button 
                 onClick={() => bniSystemInputRef.current?.click()}
-                className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 ${bniSystemData.length > 0 ? 'bg-[#004d40] text-white' : 'bg-[#004d40] text-white hover:bg-[#003d33]'}`}
+                className={`w-full cursor-pointer py-2.5 px-4 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 ${bniSystemData.length > 0 ? 'bg-[#004d40] text-white' : 'bg-[#004d40] text-white hover:bg-[#003d33]'}`}
               >
                 {bniSystemData.length > 0 ? <CheckCircle className="w-4 h-4" /> : <Upload className="w-4 h-4" />}
                 {bniSystemData.length > 0 ? 'Terunggah' : 'Pilih File Bank'}
@@ -1152,7 +1170,7 @@ export function ProsesMoker() {
                 
                 <button 
                   onClick={() => (bank === 'BNI' ? bniInputRef : bank === 'BRI' ? briInputRef : bsiInputRef).current?.click()}
-                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 bg-[#C4D600] text-black hover:bg-[#AAB800]`}
+                  className={`w-full cursor-pointer py-2.5 px-4 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 bg-[#C4D600] text-black hover:bg-[#AAB800]`}
                 >
                   {(bank === 'BNI' ? bniData : bank === 'BRI' ? briData : bsiData).length > 0 ? <CheckCircle className="w-4 h-4" /> : <Upload className="w-4 h-4" />}
                   {(bank === 'BNI' ? bniData : bank === 'BRI' ? briData : bsiData).length > 0 ? 'Terunggah' : 'Pilih File Bank'}

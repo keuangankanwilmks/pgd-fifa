@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight, Save, Play, RefreshCw, X, Download, FileText, Database } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, ArrowRight, Save, Play, RefreshCw, X, Download, FileText, Database, Plus, Edit2, Trash2, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Select from 'react-select';
 import toast from 'react-hot-toast';
@@ -7,10 +7,14 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { googleSheetsService } from '../services/googleSheetsService';
 import { useNotifications } from '../contexts/NotificationContext';
+import { AnimatedModal } from '../components/AnimatedModal';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 import { norekService, NoRekMapping } from '../services/norekService';
-import { cabangService } from '../services/cabangService';
+import { cabangService, type Cabang } from '../services/cabangService';
+import { glBankService } from '../services/glBankService';
 import { saldoHarianService } from '../services/saldoHarianService';
+import { DEFAULT_UPLOAD_EXCEL_CONFIGS, uploadExcelConfigService, type UploadExcelConfigMap } from '../services/uploadExcelConfigService';
 
 // --- Types ---
 interface SistemData {
@@ -54,6 +58,58 @@ interface RekonResult {
     selisihNetto: number;
     seharusnyaBalance: number;
   };
+}
+
+type ActionModalType = 'return' | 'get';
+
+interface ActionModalRow {
+  date: string;
+  noBukti: string;
+  reference: string;
+  amount: string;
+  keterangan: string;
+}
+
+interface CheckModalState {
+  cabang: string;
+  sistemRows: SistemData[];
+  bankRows: BankData[];
+}
+
+interface CabangAggregate<T> {
+  cabang: string;
+  rows: T[];
+  total: number;
+}
+
+interface DropPollPreviewRow {
+  id: string;
+  sheetRowIndex?: number;
+  cabang: string;
+  source: ActionModalType;
+  tanggalRekon: string;
+  companyCode: string;
+  documentDate: string;
+  postingDate: string;
+  noBukti: string;
+  reference: string;
+  dropPool: string;
+  profitCenterD: string;
+  glAkunD: string;
+  profitCenterK: string;
+  glAkunK: string;
+  amount: string;
+  keterangan: string;
+}
+
+interface HutangTampunganRow {
+  rowIndex: number;
+  tanggal: string;
+  akunDb: string;
+  akunCr: string;
+  nominal: number;
+  keterangan: string;
+  status: string;
 }
 
 // --- Helper Functions ---
@@ -105,6 +161,54 @@ const parseExcelDate = (excelDate: any) => {
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+};
+
+const formatNumberGroup = (value: any) => {
+  const amount = typeof value === 'number' ? value : cleanAmount(value);
+  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: 2 }).format(amount);
+};
+
+const formatDateSlash = (date: string) => {
+  if (!date) return '';
+  const parts = date.split('-');
+  if (parts.length !== 3) return date;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
+const formatDateDot = (date: string) => formatDateSlash(date).replace(/\//g, '.');
+
+const normalizeCabangKey = (cabang: string) => String(cabang || '').trim() || 'TANPA CABANG';
+
+const normalizeCompareText = (value: string) => String(value || '')
+  .replace(/^(CP|CPS|UPS|UPC|CAB\.)\s+/i, '')
+  .trim()
+  .toUpperCase();
+
+const BANK_GL_BY_BANK: Record<string, string> = {
+  BRI: '1101206037',
+  BNI: '1101204021',
+  BSI: '1101208024',
+};
+
+const DROP_POLL_HEADERS = [
+  'Tanggal Rekon',
+  'Company Code',
+  'Document Date',
+  'Posting Date',
+  'No. Bukti',
+  'Reference',
+  'Drop / Pool',
+  'Profit Center (D)',
+  'GL Akun (D)',
+  'Profit Center (K)',
+  'GL Akun (K)',
+  'Amount',
+  'Keterangan',
+];
+
+const parseUpdatedRangeStartRow = (updatedRange?: string) => {
+  const match = String(updatedRange || '').match(/![A-Z]+(\d+)/i);
+  return match ? Number(match[1]) : null;
 };
 
 const cleanAmount = (val: any) => {
@@ -172,8 +276,10 @@ export function RekonBNI({
 }: RekonBNIProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [cabangOptions, setCabangOptions] = useState<{ value: string; label: string }[]>([]);
+  const [cabangMaster, setCabangMaster] = useState<Cabang[]>([]);
   const [norekMappings, setNorekMappings] = useState<NoRekMapping[]>([]);
   const [sistemFile, setSistemFile] = useState<File | null>(null);
+  const [uploadExcelConfigs, setUploadExcelConfigs] = useState<UploadExcelConfigMap>(DEFAULT_UPLOAD_EXCEL_CONFIGS);
 
   const [bankFile, setBankFile] = useState<File | null>(null);
   const [hasDateInconsistency, setHasDateInconsistency] = useState(false);
@@ -183,6 +289,7 @@ export function RekonBNI({
     try {
       // 1. Fetch from Firestore (Primary)
       const firestoreCabang = await cabangService.getAll();
+      setCabangMaster(firestoreCabang);
       if (firestoreCabang.length > 0) {
         setCabangOptions(firestoreCabang.map(c => ({ value: c.nama, label: c.nama })));
       }
@@ -228,6 +335,16 @@ export function RekonBNI({
   useEffect(() => {
     fetchCabang();
   }, []);
+
+  useEffect(() => {
+    uploadExcelConfigService.getConfigs()
+      .then(setUploadExcelConfigs)
+      .catch(error => {
+        console.error('Error loading upload excel config:', error);
+      });
+  }, []);
+
+  const getUploadConfig = (id: string) => uploadExcelConfigs[id] || DEFAULT_UPLOAD_EXCEL_CONFIGS[id];
   
   const [sistemData, setSistemData] = useState<SistemData[]>([]);
   const [bankData, setBankData] = useState<BankData[]>([]);
@@ -256,7 +373,29 @@ export function RekonBNI({
   }, [sistemData, bankData]);
   
   const [rekonResult, setRekonResult] = useState<RekonResult | null>(null);
-  const [activeTabResult, setActiveTabResult] = useState<'cocok' | 'sistem' | 'bank' | 'analisa'>('cocok');
+  const [activeTabResult, setActiveTabResult] = useState<'cocok' | 'unmatched' | 'analisa'>('cocok');
+  const [checkModal, setCheckModal] = useState<CheckModalState | null>(null);
+  const [actionModalType, setActionModalType] = useState<ActionModalType | null>(null);
+  const [actionModalRows, setActionModalRows] = useState<ActionModalRow[]>([]);
+  const [actionModalSource, setActionModalSource] = useState<SistemData | null>(null);
+  const [dropPollPreviewRows, setDropPollPreviewRows] = useState<DropPollPreviewRow[]>([]);
+  const [editingPreviewRowId, setEditingPreviewRowId] = useState<string | null>(null);
+  const [dirtyPreviewRowIds, setDirtyPreviewRowIds] = useState<string[]>([]);
+  const [deletedPreviewRows, setDeletedPreviewRows] = useState<DropPollPreviewRow[]>([]);
+  const [isSavingActionRows, setIsSavingActionRows] = useState(false);
+  const [isSavingPreviewRows, setIsSavingPreviewRows] = useState(false);
+  const [isDropPollPreviewOpen, setIsDropPollPreviewOpen] = useState(false);
+  const [downloadDropPollRows, setDownloadDropPollRows] = useState<any[][]>([]);
+  const [isLoadingDropPollPreview, setIsLoadingDropPollPreview] = useState(false);
+  const [isTampunganOpen, setIsTampunganOpen] = useState(false);
+  const [isLoadingTampungan, setIsLoadingTampungan] = useState(false);
+  const [hutangTampunganRows, setHutangTampunganRows] = useState<HutangTampunganRow[]>([]);
+  const [tampunganPosition, setTampunganPosition] = useState({ x: 180, y: 90 });
+  const tampunganDragRef = useRef<{ isDragging: boolean; offsetX: number; offsetY: number }>({
+    isDragging: false,
+    offsetX: 0,
+    offsetY: 0,
+  });
 
   // --- Step 1: Upload & Parse ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'sistem' | 'bank') => {
@@ -324,17 +463,19 @@ export function RekonBNI({
   };
 
   const parseSistem = (data: any[][]) => {
+    const config = getUploadConfig('rekon-sistem');
+    const col = config.columns;
     const result: SistemData[] = [];
-    for (let i = 12; i < data.length; i++) {
+    for (let i = config.firstDataRow; i < data.length; i++) {
       const row = data[i];
       if (!row || row.length < 10) continue;
       
-      const tanggalRaw = row[0];
-      let textUtama = String(row[4] || "").trim();
-      const longText = String(row[11] || "").trim();
-      const debit = cleanAmount(row[7]);
-      const kredit = cleanAmount(row[8]);
-      const balance = cleanAmount(row[9]);
+      const tanggalRaw = row[col.tanggal];
+      let textUtama = String(row[col.textUtama] || "").trim();
+      const longText = String(row[col.longText] || "").trim();
+      const debit = cleanAmount(row[col.debit]);
+      const kredit = cleanAmount(row[col.kredit]);
+      const balance = cleanAmount(row[col.balance]);
       
       let keteranganFinal = textUtama !== "" ? textUtama : longText;
       const tglCek = String(tanggalRaw || "").toLowerCase();
@@ -348,9 +489,9 @@ export function RekonBNI({
         while (j < data.length) {
           const nextRow = data[j];
           if (!nextRow) break;
-          const nextTgl = String(nextRow[0] || "").trim();
-          const nextKetUtama = String(nextRow[4] || "").trim();
-          const nextLongText = String(nextRow[11] || "").trim();
+          const nextTgl = String(nextRow[col.tanggal] || "").trim();
+          const nextKetUtama = String(nextRow[col.textUtama] || "").trim();
+          const nextLongText = String(nextRow[col.longText] || "").trim();
           
           if (nextTgl === "" && (nextKetUtama !== "" || nextLongText !== "")) {
             const nextKet = nextKetUtama !== "" ? nextKetUtama : nextLongText;
@@ -582,6 +723,7 @@ export function RekonBNI({
 
   const parseBankBRI = (data: any[][]) => {
     console.log('Starting parseBankBRI with total rows:', data.length);
+    const config = getUploadConfig('rekon-bri-cms');
     const result: BankData[] = [];
     
     // Dynamically find the start row by looking for "Tanggal" or "Keterangan"
@@ -600,17 +742,17 @@ export function RekonBNI({
     }
 
     if (startRow === -1) {
-      console.warn('Could not find BRI header row. Falling back to row 19 (index 18).');
-      startRow = 18;
+      console.warn(`Could not find BRI header row. Falling back to configured row index ${config.firstDataRow}.`);
+      startRow = config.firstDataRow;
     }
 
     // Try to find column indices from the header row
     let colIdx = {
-      tanggal: 2,   // C
-      keterangan: 6, // G
-      debit: 22,    // W
-      kredit: 31,   // AF
-      balance: 38   // AM
+      tanggal: config.columns.tanggal,
+      keterangan: config.columns.keterangan,
+      debit: config.columns.debit,
+      kredit: config.columns.kredit,
+      balance: config.columns.balance
     };
 
     if (startRow > 0) {
@@ -703,9 +845,11 @@ export function RekonBNI({
 
   const parseBankBSI = (data: any[][]) => {
     console.log('Starting parseBankBSI with total rows:', data.length);
+    const config = getUploadConfig('rekon-bsi-cms');
+    const col = config.columns;
     const result: BankData[] = [];
     
-    let startRow = 12; // Default fallback
+    let startRow = config.firstDataRow;
     for (let i = 0; i < Math.min(data.length, 50); i++) {
       const row = data[i];
       if (!row) continue;
@@ -720,12 +864,12 @@ export function RekonBNI({
       const row = data[i];
       if (!row || row.length < 8) continue;
       
-      const tanggalRaw = row[0]; // Col A
-      let ket = String(row[2] || "").trim(); // Col C
-      const amountRaw = row[4]; // Col E
-      const dbRaw = String(row[5] || "").trim().toUpperCase(); // Col F
-      const crRaw = String(row[6] || "").trim().toUpperCase(); // Col G
-      const balanceRaw = row[7]; // Col H
+      const tanggalRaw = row[col.tanggal];
+      let ket = String(row[col.keterangan] || "").trim();
+      const amountRaw = row[col.amount];
+      const dbRaw = String(row[col.db] || "").trim().toUpperCase();
+      const crRaw = String(row[col.cr] || "").trim().toUpperCase();
+      const balanceRaw = row[col.balance];
 
       const amount = cleanAmount(amountRaw);
       const balance = cleanAmount(balanceRaw);
@@ -736,8 +880,8 @@ export function RekonBNI({
         while (j < data.length) {
           const nextRow = data[j];
           if (!nextRow) break;
-          const nextTgl = String(nextRow[0] || "").trim();
-          const nextKet = String(nextRow[2] || "").trim();
+          const nextTgl = String(nextRow[col.tanggal] || "").trim();
+          const nextKet = String(nextRow[col.keterangan] || "").trim();
           
           if (nextTgl === "" && nextKet !== "") {
             if (!/halaman|page|saldo awal|opening balance/i.test(nextKet)) {
@@ -777,10 +921,17 @@ export function RekonBNI({
   };
 
   const parseBank = (data: any[][]) => {
+    const config = getUploadConfig('rekon-bni-cms');
     const result: BankData[] = [];
     let startRow = 0;
     // Default indices for BNI CMS
-    const colIdx = { tanggal: 7, keterangan: 12, amount: 21, dc: 23, balance: 24 };
+    const colIdx = {
+      tanggal: config.columns.tanggal,
+      keterangan: config.columns.keterangan,
+      amount: config.columns.amount,
+      dc: config.columns.dc,
+      balance: config.columns.balance
+    };
 
     // Find header row to be more dynamic
     for (let i = 0; i < Math.min(data.length, 25); i++) {
@@ -804,7 +955,7 @@ export function RekonBNI({
     }
 
     // If no header found, use default BNI CMS start row
-    if (startRow === 0) startRow = 12;
+    if (startRow === 0) startRow = config.firstDataRow;
 
     for (let i = startRow; i < data.length; i++) {
       const row = data[i];
@@ -1088,6 +1239,353 @@ export function RekonBNI({
     setRekonResult(newResult);
   };
 
+  const buildActionModalRow = (type: ActionModalType, row?: SistemData | null, includeAmount = true): ActionModalRow => {
+    const source = row || actionModalSource;
+    const tanggal = source?.tanggal || '';
+    const tanggalLabel = formatDateSlash(tanggal);
+    const cabang = source?.cabang || '';
+
+    return {
+      date: type === 'return' ? tanggal : '',
+      noBukti: tanggalLabel ? `KOR POLL ${tanggalLabel}` : 'KOR POLL',
+      reference: '',
+      amount: source && includeAmount ? String(Math.abs(source.nominalNormal)) : '',
+      keterangan: `${cabang}${cabang ? ' ' : ''}KOR TRX ${tanggalLabel}`.trim(),
+    };
+  };
+
+  const openActionModal = (type: ActionModalType, row: SistemData) => {
+    setActionModalSource(row);
+    setActionModalType(type);
+    setActionModalRows([buildActionModalRow(type, row)]);
+  };
+
+  const closeActionModal = () => {
+    setActionModalType(null);
+    setActionModalRows([]);
+    setActionModalSource(null);
+  };
+
+  const addActionModalRow = () => {
+    setActionModalRows(prev => [...prev, buildActionModalRow(actionModalType || 'return', actionModalSource, false)]);
+  };
+
+  const updateActionModalRow = (index: number, field: keyof ActionModalRow, value: string) => {
+    setActionModalRows(prev => prev.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, [field]: value } : item
+    )));
+  };
+
+  const updateDropPollPreviewRow = (id: string, field: keyof DropPollPreviewRow, value: string) => {
+    setDropPollPreviewRows(prev => prev.map(item => (
+      item.id === id ? { ...item, [field]: value } : item
+    )));
+    setDirtyPreviewRowIds(prev => prev.includes(id) ? prev : [...prev, id]);
+  };
+
+  const deleteDropPollPreviewRow = (id: string) => {
+    const row = dropPollPreviewRows.find(item => item.id === id);
+    if (row?.sheetRowIndex) {
+      setDeletedPreviewRows(prev => prev.some(item => item.id === id) ? prev : [...prev, row]);
+    }
+    setDropPollPreviewRows(prev => prev.filter(item => item.id !== id));
+    setDirtyPreviewRowIds(prev => prev.filter(itemId => itemId !== id));
+    if (editingPreviewRowId === id) {
+      setEditingPreviewRowId(null);
+    }
+  };
+
+  const getRekonDate = () => sistemData[0]?.tanggal || bankData[0]?.tanggal || '';
+
+  const previewRowToSheetRow = (row: DropPollPreviewRow) => [
+    row.tanggalRekon,
+    row.companyCode,
+    row.documentDate,
+    row.postingDate,
+    row.noBukti,
+    row.reference,
+    row.dropPool,
+    row.profitCenterD,
+    row.glAkunD,
+    row.profitCenterK,
+    row.glAkunK,
+    row.amount,
+    row.keterangan,
+  ];
+
+  const getCabangSapCode = (cabang?: Cabang | null) => (
+    String(cabang?.sapCode || cabang?.sapcode || cabang?.SAPCODE || cabang?.SapCode || cabang?.id || '').trim()
+  );
+
+  const findCabangMaster = (rows: Cabang[], cabang: string) => {
+    const target = normalizeCompareText(cabang);
+    return rows.find(item => (
+      normalizeCompareText(item.nama) === target ||
+      normalizeCompareText(item.id || '') === target ||
+      String(item.nama || '').trim().toUpperCase() === String(cabang || '').trim().toUpperCase()
+    ));
+  };
+
+  const ensureDropPollSheet = async (spreadsheetId: string) => {
+    await googleSheetsService.ensureSheet(spreadsheetId, 'Drop/Poll');
+    const rows = await googleSheetsService.readData(spreadsheetId, "'Drop/Poll'!A1:M1", 'FORMATTED_VALUE', true);
+    if (!rows || rows.length === 0 || rows[0]?.[0] !== DROP_POLL_HEADERS[0]) {
+      await googleSheetsService.updateData(spreadsheetId, "'Drop/Poll'!A1:M1", [DROP_POLL_HEADERS]);
+    }
+  };
+
+  const buildDropPollRows = async () => {
+    if (!actionModalType || !actionModalSource) {
+      throw new Error('Data sumber Return/Get tidak tersedia');
+    }
+
+    let masterCabangRows = cabangMaster;
+    let cabangInfo = findCabangMaster(masterCabangRows, actionModalSource.cabang);
+    let sapCode = getCabangSapCode(cabangInfo);
+
+    if (!sapCode) {
+      masterCabangRows = await cabangService.getAll();
+      setCabangMaster(masterCabangRows);
+      cabangInfo = findCabangMaster(masterCabangRows, actionModalSource.cabang);
+      sapCode = getCabangSapCode(cabangInfo);
+    }
+
+    if (!sapCode) {
+      throw new Error(`SAP Code cabang ${actionModalSource.cabang || '-'} tidak ditemukan pada master cabang`);
+    }
+
+    const glBank = await glBankService.getByBank(bank);
+    const glBankNumber = String(glBank?.nomorGL || glBank?.gl || '').trim();
+    if (!glBankNumber) {
+      throw new Error(`Nomor GL untuk bank ${bank} tidak ditemukan pada master gl_bank`);
+    }
+
+    const bankGl = BANK_GL_BY_BANK[String(bank || '').trim().toUpperCase()];
+    if (!bankGl) {
+      throw new Error(`GL akun default bank ${bank} belum dikonfigurasi`);
+    }
+
+    const sourceDate = actionModalSource.tanggal;
+    const dropPool = actionModalType === 'return' ? 'D' : 'P';
+    const validRows = actionModalRows.filter(row => (
+      row.date || row.noBukti || row.reference || row.amount || row.keterangan
+    ));
+
+    if (validRows.length === 0) {
+      throw new Error('Tidak ada data untuk disimpan');
+    }
+
+    return validRows.map((row, index) => {
+      const documentDate = formatDateDot(row.date);
+      const amount = cleanAmount(row.amount);
+      const preview: DropPollPreviewRow = {
+        id: `${Date.now()}-${index}`,
+        cabang: normalizeCabangKey(actionModalSource.cabang),
+        source: actionModalType,
+        tanggalRekon: sourceDate,
+        companyCode: 'PGD',
+        documentDate,
+        postingDate: documentDate,
+        noBukti: row.noBukti,
+        reference: row.reference,
+        dropPool,
+        profitCenterD: actionModalType === 'return' ? sapCode : 'PKF000001',
+        glAkunD: actionModalType === 'return' ? bankGl : glBankNumber,
+        profitCenterK: actionModalType === 'return' ? 'PKF000001' : sapCode,
+        glAkunK: actionModalType === 'return' ? glBankNumber : bankGl,
+        amount: amount ? String(amount) : row.amount,
+        keterangan: row.keterangan,
+      };
+
+      return {
+        preview,
+        sheetRow: previewRowToSheetRow(preview),
+      };
+    });
+  };
+
+  const saveActionRows = async () => {
+    const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
+    if (!spreadsheetId) {
+      toast.error('Spreadsheet ID belum dikonfigurasi');
+      return;
+    }
+
+    setIsSavingActionRows(true);
+    try {
+      const rows = await buildDropPollRows();
+      await ensureDropPollSheet(spreadsheetId);
+      const appendResult = await googleSheetsService.appendData(spreadsheetId, "'Drop/Poll'!A1", rows.map(item => item.sheetRow));
+      const startRow = parseUpdatedRangeStartRow(appendResult?.updates?.updatedRange);
+      setDropPollPreviewRows(prev => [
+        ...prev,
+        ...rows.map((item, index) => ({
+          ...item.preview,
+          sheetRowIndex: startRow ? startRow + index : undefined,
+        })),
+      ]);
+      toast.success(`${rows.length} data berhasil disimpan ke sheet Drop/Poll`);
+      closeActionModal();
+    } catch (error: any) {
+      console.error('Save Drop/Poll error:', error);
+      toast.error(error.message || 'Gagal menyimpan data Drop/Poll');
+    } finally {
+      setIsSavingActionRows(false);
+    }
+  };
+
+  const savePreviewChanges = async () => {
+    if (dirtyPreviewRowIds.length === 0 && deletedPreviewRows.length === 0) return;
+
+    const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
+    if (!spreadsheetId) {
+      toast.error('Spreadsheet ID belum dikonfigurasi');
+      return;
+    }
+
+    setIsSavingPreviewRows(true);
+    try {
+      const dirtyRows = dropPollPreviewRows.filter(row => dirtyPreviewRowIds.includes(row.id) && row.sheetRowIndex);
+
+      await Promise.all(dirtyRows.map(row => (
+        googleSheetsService.updateData(spreadsheetId, `'Drop/Poll'!A${row.sheetRowIndex}:M${row.sheetRowIndex}`, [previewRowToSheetRow(row)])
+      )));
+
+      const deletedSheetRows = deletedPreviewRows
+        .map(row => row.sheetRowIndex)
+        .filter((rowIndex): rowIndex is number => typeof rowIndex === 'number');
+
+      if (deletedSheetRows.length > 0) {
+        const sheetId = await googleSheetsService.getSheetIdByName(spreadsheetId, 'Drop/Poll');
+        if (sheetId === null) {
+          throw new Error('Sheet Drop/Poll tidak ditemukan');
+        }
+        await googleSheetsService.deleteRows(spreadsheetId, sheetId, deletedSheetRows.map(rowIndex => rowIndex - 1));
+      }
+
+      setDropPollPreviewRows(prev => prev.map(row => {
+        if (!row.sheetRowIndex) return row;
+        const deletedBeforeCount = deletedSheetRows.filter(deletedRowIndex => deletedRowIndex < row.sheetRowIndex!).length;
+        return deletedBeforeCount > 0 ? { ...row, sheetRowIndex: row.sheetRowIndex - deletedBeforeCount } : row;
+      }));
+      setDirtyPreviewRowIds([]);
+      setDeletedPreviewRows([]);
+      setEditingPreviewRowId(null);
+      toast.success('Perubahan preview berhasil disimpan ke Google Sheet');
+    } catch (error: any) {
+      console.error('Save Drop/Poll preview changes error:', error);
+      toast.error(error.message || 'Gagal menyimpan perubahan preview');
+    } finally {
+      setIsSavingPreviewRows(false);
+    }
+  };
+
+  const aggregateByCabang = <T extends { cabang: string; nominalNormal: number }>(rows: T[]): CabangAggregate<T>[] => {
+    const grouped = rows.reduce<Record<string, CabangAggregate<T>>>((acc, row) => {
+      const cabang = normalizeCabangKey(row.cabang);
+      if (!acc[cabang]) {
+        acc[cabang] = { cabang, rows: [], total: 0 };
+      }
+      acc[cabang].rows.push(row);
+      acc[cabang].total += row.nominalNormal;
+      return acc;
+    }, {});
+
+    return Object.values(grouped).sort((a, b) => a.cabang.localeCompare(b.cabang));
+  };
+
+  const openCheckModal = (cabang: string) => {
+    if (!rekonResult) return;
+    const cabangKey = normalizeCabangKey(cabang);
+    setCheckModal({
+      cabang: cabangKey,
+      sistemRows: rekonResult.hanyaDiSistem.filter(item => normalizeCabangKey(item.cabang) === cabangKey),
+      bankRows: rekonResult.hanyaDiBank.filter(item => normalizeCabangKey(item.cabang) === cabangKey),
+    });
+    setIsTampunganOpen(false);
+    setHutangTampunganRows([]);
+  };
+
+  const loadHutangTampungan = async () => {
+    if (!checkModal) return;
+    const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
+    if (!spreadsheetId) {
+      toast.error('Spreadsheet ID belum dikonfigurasi');
+      return;
+    }
+
+    setIsLoadingTampungan(true);
+    setIsTampunganOpen(true);
+    setTampunganPosition({ x: 180, y: 90 });
+    try {
+      const values = await googleSheetsService.readData(spreadsheetId, 'HutOpr!A2:G');
+      const cabangKey = normalizeCompareText(checkModal.cabang);
+      const mapped: HutangTampunganRow[] = (values || []).map((row: any, index: number) => ({
+        rowIndex: index + 2,
+        tanggal: row[0] || '',
+        akunDb: row[1] || '',
+        akunCr: row[2] || '',
+        nominal: cleanAmount(row[3]),
+        keterangan: row[4] || '',
+        status: row[5] || 'Belum',
+      }));
+
+      setHutangTampunganRows(mapped.filter(item => (
+        normalizeCompareText(item.akunCr) === cabangKey &&
+        normalizeCompareText(item.status || 'Belum') === 'BELUM'
+      )));
+    } catch (error: any) {
+      console.error('Load tampungan HutOpr error:', error);
+      toast.error(error.message || 'Gagal memuat data tampungan');
+    } finally {
+      setIsLoadingTampungan(false);
+    }
+  };
+
+  const startTampunganDrag = (event: React.MouseEvent<HTMLDivElement>) => {
+    tampunganDragRef.current = {
+      isDragging: true,
+      offsetX: event.clientX - tampunganPosition.x,
+      offsetY: event.clientY - tampunganPosition.y,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!tampunganDragRef.current.isDragging) return;
+      setTampunganPosition({
+        x: Math.max(8, event.clientX - tampunganDragRef.current.offsetX),
+        y: Math.max(8, event.clientY - tampunganDragRef.current.offsetY),
+      });
+    };
+
+    const handleMouseUp = () => {
+      tampunganDragRef.current.isDragging = false;
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const sistemAggregates = rekonResult ? aggregateByCabang(rekonResult.hanyaDiSistem) : [];
+  const bankAggregates = rekonResult ? aggregateByCabang(rekonResult.hanyaDiBank) : [];
+  const checkSistemTotal = checkModal ? checkModal.sistemRows.reduce((sum, item) => sum + item.nominalNormal, 0) : 0;
+  const checkBankTotal = checkModal ? checkModal.bankRows.reduce((sum, item) => sum + item.nominalNormal, 0) : 0;
+  const checkDifference = checkSistemTotal - checkBankTotal;
+  const checkPreviewRows = checkModal
+    ? dropPollPreviewRows.filter(item => item.cabang === normalizeCabangKey(checkModal.cabang))
+    : [];
+  const hasPreviewChanges = dirtyPreviewRowIds.length > 0 || deletedPreviewRows.length > 0;
+
+  useEscapeToClose(!!actionModalType && !isSavingActionRows, closeActionModal);
+  useEscapeToClose(!actionModalType && isTampunganOpen, () => setIsTampunganOpen(false));
+  useEscapeToClose(!actionModalType && !isTampunganOpen && !!checkModal, () => setCheckModal(null));
+  useEscapeToClose(!actionModalType && !isTampunganOpen && !checkModal && isDropPollPreviewOpen, () => setIsDropPollPreviewOpen(false));
+
   const isCabangValid = (cabang: string) => {
     if (!cabang || cabang === "-") return false;
     
@@ -1157,6 +1655,75 @@ export function RekonBNI({
 
     XLSX.writeFile(wb, `Rekon_${bank}_${new Date().toISOString().split('T')[0]}.xlsx`);
     toast.success('File Excel berhasil diunduh');
+  };
+
+  const loadDropPollPreview = async () => {
+    const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
+    const rekonDate = getRekonDate();
+
+    if (!spreadsheetId) {
+      toast.error('Spreadsheet ID belum dikonfigurasi');
+      return;
+    }
+
+    if (!rekonDate) {
+      toast.error('Tanggal rekon tidak ditemukan');
+      return;
+    }
+
+    setIsLoadingDropPollPreview(true);
+    try {
+      const rows = await googleSheetsService.readData(spreadsheetId, "'Drop/Poll'!A:M", 'FORMATTED_VALUE', true);
+      if (!rows || rows.length <= 1) {
+        toast.error('Belum ada data pada sheet Drop/Poll');
+        return;
+      }
+
+      const filteredRows = rows.slice(1).filter((row: any[]) => String(row?.[0] || '').trim() === rekonDate);
+
+      if (filteredRows.length === 0) {
+        toast.error(`Tidak ada data Drop/Poll untuk tanggal rekon ${rekonDate}`);
+        return;
+      }
+
+      setDownloadDropPollRows(filteredRows);
+      setIsDropPollPreviewOpen(true);
+    } catch (error: any) {
+      console.error('Load Drop/Poll preview error:', error);
+      toast.error(error.message || 'Gagal memuat preview Drop/Poll');
+    } finally {
+      setIsLoadingDropPollPreview(false);
+    }
+  };
+
+  const exportDropPollExcel = () => {
+    const rekonDate = getRekonDate();
+    if (downloadDropPollRows.length === 0) {
+      toast.error('Tidak ada data Drop/Poll untuk diunduh');
+      return;
+    }
+
+    const headers = DROP_POLL_HEADERS.slice(1);
+    const amountColumnIndex = headers.indexOf('Amount');
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      headers,
+      ...downloadDropPollRows.map((row: any[]) => DROP_POLL_HEADERS.slice(1).map((_, index) => (
+        index === amountColumnIndex ? cleanAmount(row[index + 1]) : (row[index + 1] ?? '')
+      ))),
+    ]);
+    worksheet['!cols'] = headers.map((header: string) => ({ wch: Math.max(14, header.length + 2) }));
+    downloadDropPollRows.forEach((_, rowIndex) => {
+      const cellAddress = XLSX.utils.encode_cell({ r: rowIndex + 1, c: amountColumnIndex });
+      if (worksheet[cellAddress]) {
+        worksheet[cellAddress].t = 'n';
+        worksheet[cellAddress].z = '#,##0';
+      }
+    });
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Drop Poll');
+    XLSX.writeFile(workbook, `Dropping_Polling_SAP_${bank}_${rekonDate}.xlsx`);
+    toast.success('File Drop/Poll berhasil diunduh');
   };
 
   const exportToPDF = () => {
@@ -1673,6 +2240,10 @@ export function RekonBNI({
                   <Database className="w-4 h-4 text-blue-600" />
                   Save to Sheets
                 </button>
+                <button onClick={loadDropPollPreview} disabled={isLoadingDropPollPreview} className="px-3 py-2 hover:bg-gray-50 text-gray-700 flex items-center gap-2 text-xs font-bold border-l border-gray-100 cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+                  <FileSpreadsheet className={`w-4 h-4 text-[#009B4F] ${isLoadingDropPollPreview ? 'animate-pulse' : ''}`} />
+                  Drop/Poll
+                </button>
               </div>
               <button onClick={() => setStep(2)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors cursor-pointer">
                 Kembali
@@ -1701,17 +2272,12 @@ export function RekonBNI({
               ✅ DATA MATCHED ({rekonResult.cocok.length})
             </button>
             <button 
-              onClick={() => setActiveTabResult('sistem')}
-              className={`flex-1 py-4 font-bold text-sm transition-colors cursor-pointer ${activeTabResult === 'sistem' ? 'bg-red-50 text-red-600 border-b-2 border-red-600' : 'text-gray-500 hover:bg-gray-50'}`}
+              onClick={() => setActiveTabResult('unmatched')}
+              className={`flex-1 py-4 font-bold text-sm transition-colors cursor-pointer ${activeTabResult === 'unmatched' ? 'bg-red-50 text-red-600 border-b-2 border-red-600' : 'text-gray-500 hover:bg-gray-50'}`}
             >
-              ❌ DATA SISTEM/OUTSTANDING ({rekonResult.hanyaDiSistem.length})
+              ❌ DATA UNMATCHED ({rekonResult.hanyaDiSistem.length + rekonResult.hanyaDiBank.length})
             </button>
-            <button 
-              onClick={() => setActiveTabResult('bank')}
-              className={`flex-1 py-4 font-bold text-sm transition-colors cursor-pointer ${activeTabResult === 'bank' ? 'bg-orange-50 text-orange-600 border-b-2 border-orange-600' : 'text-gray-500 hover:bg-gray-50'}`}
-            >
-              ⚠️ DATA CMS/BELUM DIBUKUKAN ({rekonResult.hanyaDiBank.length})
-            </button>
+
             <button 
               onClick={() => setActiveTabResult('analisa')}
               className={`flex-1 py-4 font-bold text-sm transition-colors cursor-pointer ${activeTabResult === 'analisa' ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
@@ -1763,94 +2329,95 @@ export function RekonBNI({
               </table>
             )}
 
-            {activeTabResult === 'sistem' && (
-              <table className="w-full text-left text-sm border border-gray-200">
-                <thead className="bg-red-50 text-red-600">
-                  <tr>
-                    <th className="py-3 px-4 border-b border-gray-200">Tanggal</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Keterangan</th>
-                    <th className="py-3 px-4 border-b border-gray-200 text-right">Nominal</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Cabang</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Kategori</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Catatan Rekon</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {rekonResult.hanyaDiSistem.map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="py-2 px-4">{row.tanggal}</td>
-                      <td className="py-2 px-4">{row.keterangan}</td>
-                      <td className="py-2 px-4 text-right font-medium text-red-600">{formatCurrency(row.nominalNormal)}</td>
-                      <td className="py-2 px-4 font-medium">{row.cabang}</td>
-                      <td className="py-2 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${row.kategori === 'Non Pembayaran' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {row.kategori}
-                        </span>
-                      </td>
-                      <td className="py-1 px-4">
-                        <input 
-                          type="text" 
-                          placeholder="Tambah catatan..."
-                          value={row.catatan || ''}
-                          onChange={(e) => handleCatatanChange(row.id, e.target.value, 'sistem')}
-                          className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:border-red-500 outline-none"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                  <tr className="bg-red-50/50 font-bold">
-                    <td colSpan={2} className="py-3 px-4 text-right">TOTAL OUTSTANDING</td>
-                    <td className="py-3 px-4 text-right text-red-600">{formatCurrency(rekonResult.analisa.totalOutstanding)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                </tbody>
-              </table>
-            )}
+            {activeTabResult === 'unmatched' && (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="min-w-0 overflow-hidden rounded-xl border border-red-100 bg-white">
+                  <div className="flex items-center justify-between border-b border-red-100 bg-red-50 px-4 py-3">
+                    <h4 className="text-sm font-black text-red-700">DATA SISTEM/OUTSTANDING ({sistemAggregates.length} Cabang)</h4>
+                    <span className="text-xs font-bold text-red-600">{formatCurrency(rekonResult.analisa.totalOutstanding)}</span>
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="w-full min-w-[620px] text-left text-xs border-collapse">
+                      <thead className="bg-red-50 text-red-600">
+                        <tr>
+                          <th className="py-3 px-3 border-b border-red-100">Cabang</th>
+                          <th className="py-3 px-3 border-b border-red-100 text-center">Jumlah Trx</th>
+                          <th className="py-3 px-3 border-b border-red-100 text-right">Total Nominal</th>
+                          <th className="py-3 px-3 border-b border-red-100 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {sistemAggregates.map(group => (
+                          <tr key={group.cabang} className="hover:bg-red-50/30">
+                            <td className="py-2 px-3 font-medium whitespace-nowrap">{group.cabang}</td>
+                            <td className="py-2 px-3 text-center font-mono">{group.rows.length}</td>
+                            <td className="py-2 px-3 text-right font-medium text-red-600 whitespace-nowrap">{formatCurrency(group.total)}</td>
+                            <td className="py-2 px-3">
+                              <div className="flex justify-center gap-2">
+                                <button
+                                  onClick={() => openCheckModal(group.cabang)}
+                                  className="rounded-lg bg-red-50 px-3 py-1.5 text-[11px] font-bold text-red-600 transition-colors hover:bg-red-100"
+                                >
+                                  Check
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="bg-red-50/50 font-bold">
+                          <td colSpan={2} className="py-3 px-3 text-right">TOTAL OUTSTANDING</td>
+                          <td className="py-3 px-3 text-right text-red-600">{formatCurrency(rekonResult.analisa.totalOutstanding)}</td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
 
-            {activeTabResult === 'bank' && (
-              <table className="w-full text-left text-sm border border-gray-200">
-                <thead className="bg-orange-50 text-orange-600">
-                  <tr>
-                    <th className="py-3 px-4 border-b border-gray-200">Tanggal</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Keterangan</th>
-                    <th className="py-3 px-4 border-b border-gray-200 text-right">Nominal</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Cabang</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Kategori</th>
-                    <th className="py-3 px-4 border-b border-gray-200">Catatan Rekon</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {rekonResult.hanyaDiBank.map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="py-2 px-4">{row.tanggal}</td>
-                      <td className="py-2 px-4">{row.keterangan}</td>
-                      <td className="py-2 px-4 text-right font-medium text-orange-600">{formatCurrency(row.nominalNormal)}</td>
-                      <td className="py-2 px-4 font-medium">{row.cabang}</td>
-                      <td className="py-2 px-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${row.kategori === 'Non Pembayaran' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {row.kategori}
-                        </span>
-                      </td>
-                      <td className="py-1 px-4">
-                        <input 
-                          type="text" 
-                          placeholder="Tambah catatan..."
-                          value={row.catatan || ''}
-                          onChange={(e) => handleCatatanChange(row.id, e.target.value, 'bank')}
-                          className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:border-orange-500 outline-none"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                  <tr className="bg-orange-50/50 font-bold">
-                    <td colSpan={2} className="py-3 px-4 text-right">TOTAL BELUM DIBUKUKAN</td>
-                    <td className="py-3 px-4 text-right text-orange-600">{formatCurrency(rekonResult.analisa.totalBelumDibukukan)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                </tbody>
-              </table>
+                <div className="min-w-0 overflow-hidden rounded-xl border border-orange-100 bg-white">
+                  <div className="flex items-center justify-between border-b border-orange-100 bg-orange-50 px-4 py-3">
+                    <h4 className="text-sm font-black text-orange-700">DATA CMS/BELUM DIBUKUKAN ({bankAggregates.length} Cabang)</h4>
+                    <span className="text-xs font-bold text-orange-600">{formatCurrency(rekonResult.analisa.totalBelumDibukukan)}</span>
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="w-full min-w-[620px] text-left text-xs border-collapse">
+                      <thead className="bg-orange-50 text-orange-600">
+                        <tr>
+                          <th className="py-3 px-3 border-b border-orange-100">Cabang</th>
+                          <th className="py-3 px-3 border-b border-orange-100 text-center">Jumlah Trx</th>
+                          <th className="py-3 px-3 border-b border-orange-100 text-right">Total Nominal</th>
+                          <th className="py-3 px-3 border-b border-orange-100 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {bankAggregates.map(group => (
+                          <tr key={group.cabang} className="hover:bg-orange-50/30">
+                            <td className="py-2 px-3 font-medium whitespace-nowrap">{group.cabang}</td>
+                            <td className="py-2 px-3 text-center font-mono">{group.rows.length}</td>
+                            <td className="py-2 px-3 text-right font-medium text-orange-600 whitespace-nowrap">{formatCurrency(group.total)}</td>
+                            <td className="py-2 px-3">
+                              <div className="flex justify-center">
+                                <button
+                                  onClick={() => openCheckModal(group.cabang)}
+                                  className="rounded-lg bg-orange-50 px-3 py-1.5 text-[11px] font-bold text-orange-600 transition-colors hover:bg-orange-100"
+                                >
+                                  Check
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="bg-orange-50/50 font-bold">
+                          <td colSpan={2} className="py-3 px-3 text-right">TOTAL BELUM DIBUKUKAN</td>
+                          <td className="py-3 px-3 text-right text-orange-600">{formatCurrency(rekonResult.analisa.totalBelumDibukukan)}</td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
             )}
-
             {activeTabResult === 'analisa' && (
               <div className="max-w-2xl mx-auto mt-8">
                 <div className="bg-white border border-blue-200 rounded-xl shadow-sm overflow-hidden">
@@ -1906,6 +2473,459 @@ export function RekonBNI({
           </div>
         </div>
       )}
+
+      <AnimatedModal isOpen={isDropPollPreviewOpen} className="fixed inset-0 z-[115] flex items-center justify-center bg-black/50 p-4">
+        <div className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-black text-gray-800">Preview Data Drop/Poll {bank}</h2>
+              <p className="mt-1 text-xs font-medium text-gray-500">Tanggal rekon: {getRekonDate() || '-'}</p>
+            </div>
+            <button
+              onClick={() => setIsDropPollPreviewOpen(false)}
+              className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto bg-gray-50/50 p-4">
+            <table className="w-full min-w-[1180px] border-collapse bg-white text-[11px]">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-[#005245]">
+                  {DROP_POLL_HEADERS.slice(1).map(header => (
+                    <th key={header} className="border border-[#004237] px-3 py-2 text-left text-[9px] font-black uppercase tracking-widest text-white">{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {downloadDropPollRows.map((row, index) => (
+                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+                    {DROP_POLL_HEADERS.slice(1).map((header, headerIndex) => (
+                      <td key={`${index}-${header}`} className={`border border-gray-200 px-3 py-2 ${header === 'Amount' ? 'text-right font-mono' : ''}`}>
+                        {header === 'Amount' ? formatNumberGroup(row[headerIndex + 1]) : (row[headerIndex + 1] ?? '')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-gray-100 bg-white px-5 py-4">
+            <button
+              onClick={() => setIsDropPollPreviewOpen(false)}
+              className="rounded-lg border border-gray-200 bg-white px-5 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Tutup
+            </button>
+            <button
+              onClick={exportDropPollExcel}
+              className="flex items-center gap-2 rounded-lg bg-[#009B4F] px-5 py-2 text-xs font-bold text-white shadow-md shadow-[#009B4F]/10 transition-colors hover:bg-[#008543]"
+            >
+              <Download className="h-4 w-4" />
+              Unduh Excel
+            </button>
+          </div>
+        </div>
+      </AnimatedModal>
+
+      <AnimatedModal isOpen={!!checkModal} className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
+        <div className="flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div>
+                <h2 className="text-lg font-black text-gray-800">Rekon {bank} {checkModal?.cabang}</h2>
+                <p className="mt-1 text-xs font-medium text-gray-500">Rincian transaksi unmatched per cabang.</p>
+              </div>
+              <button
+                onClick={loadHutangTampungan}
+                disabled={isLoadingTampungan}
+                className="flex w-fit cursor-pointer items-center gap-2 rounded-lg bg-[#009B4F] px-3 py-2 text-xs font-bold text-white shadow-md shadow-[#009B4F]/10 transition-colors hover:bg-[#008543] disabled:cursor-wait disabled:opacity-60"
+              >
+                {isLoadingTampungan ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Database className="h-4 w-4" />
+                )}
+                Cek Tampungan
+              </button>
+            </div>
+            <button
+              onClick={() => setCheckModal(null)}
+              className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {checkModal && (
+            <>
+              <div className="grid grid-cols-1 gap-3 border-b border-gray-100 bg-gray-50/70 px-5 py-4 md:grid-cols-3">
+                <div className="rounded-xl border border-red-100 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-red-500">DATA SISTEM/OUTSTANDING</p>
+                  <p className="mt-2 text-lg font-black text-red-600">{formatCurrency(checkSistemTotal)}</p>
+                </div>
+                <div className="rounded-xl border border-orange-100 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-orange-500">DATA CMS/BELUM DIBUKUKAN</p>
+                  <p className="mt-2 text-lg font-black text-orange-600">{formatCurrency(checkBankTotal)}</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">Selisih Sistem - CMS</p>
+                  <p className={`mt-2 text-lg font-black ${checkDifference === 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(checkDifference)}</p>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-auto bg-gray-50/50 p-4">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <div className="overflow-hidden rounded-xl border border-red-100 bg-white">
+                    <div className="border-b border-red-100 bg-red-50 px-4 py-3">
+                      <h3 className="text-sm font-black text-red-700">Rincian DATA SISTEM/OUTSTANDING ({checkModal.sistemRows.length})</h3>
+                    </div>
+                    <div className="overflow-auto">
+                      <table className="w-full min-w-[620px] border-collapse text-[12px]">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="bg-[#005245]">
+                            <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Keterangan</th>
+                            <th className="w-[150px] border border-[#004237] px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-white">Nominal</th>
+                            <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Cabang</th>
+                            <th className="w-[126px] border border-[#004237] px-2 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {checkModal.sistemRows.map((row, index) => (
+                            <tr key={row.id || index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+                              <td className="border border-gray-200 px-3 py-2">{row.keterangan}</td>
+                              <td className="border border-gray-200 px-3 py-2 text-right font-mono font-bold text-red-600 whitespace-nowrap">{formatCurrency(row.nominalNormal)}</td>
+                              <td className="border border-gray-200 px-3 py-2 font-medium">{row.cabang}</td>
+                              <td className="border border-gray-200 px-2 py-2">
+                                <div className="flex justify-center gap-1.5">
+                                  <button
+                                    onClick={() => openActionModal('return', row)}
+                                    className="rounded-lg bg-red-50 px-2.5 py-1.5 text-[11px] font-bold text-red-600 transition-colors hover:bg-red-100"
+                                  >
+                                    Return
+                                  </button>
+                                  <button
+                                    onClick={() => openActionModal('get', row)}
+                                    className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-[#009B4F] transition-colors hover:bg-emerald-100"
+                                  >
+                                    Get
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border border-orange-100 bg-white">
+                    <div className="border-b border-orange-100 bg-orange-50 px-4 py-3">
+                      <h3 className="text-sm font-black text-orange-700">Rincian DATA CMS/BELUM DIBUKUKAN ({checkModal.bankRows.length})</h3>
+                    </div>
+                    <div className="overflow-auto">
+                      <table className="w-full min-w-[680px] border-collapse text-[12px]">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="bg-[#005245]">
+                            <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Keterangan</th>
+                            <th className="border border-[#004237] px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-white">Nominal</th>
+                            <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Cabang</th>
+                            <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Keterangan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {checkModal.bankRows.map((row, index) => (
+                            <tr key={row.id || index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+                              <td className="border border-gray-200 px-3 py-2">{row.keterangan}</td>
+                              <td className="border border-gray-200 px-3 py-2 text-right font-mono font-bold text-orange-600">{formatCurrency(row.nominalNormal)}</td>
+                              <td className="border border-gray-200 px-3 py-2 font-medium">{row.cabang}</td>
+                              <td className="border border-gray-200 p-0">
+                                <input
+                                  type="text"
+                                  placeholder="Tambah keterangan..."
+                                  value={row.catatan || ''}
+                                  onChange={(event) => handleCatatanChange(row.id, event.target.value, 'bank')}
+                                  className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 bg-white px-5 py-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-black text-gray-800">Preview Data Drop/Poll {checkModal.cabang}</h3>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{checkPreviewRows.length} baris</span>
+                    <button
+                      onClick={savePreviewChanges}
+                      disabled={!hasPreviewChanges || isSavingPreviewRows}
+                      className="rounded-lg bg-[#009B4F] px-4 py-2 text-xs font-bold text-white shadow-md shadow-[#009B4F]/10 transition-colors hover:bg-[#008543] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {isSavingPreviewRows ? 'Menyimpan...' : 'Simpan'}
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-auto rounded-xl border border-gray-100">
+                  <table className="w-full min-w-[1320px] border-collapse bg-white text-[11px]">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-[#005245]">
+                        {[...DROP_POLL_HEADERS, 'Aksi'].map(header => (
+                          <th key={header} className={`border border-[#004237] px-3 py-2 text-[9px] font-black uppercase tracking-widest text-white ${header === 'Aksi' ? 'text-center' : 'text-left'}`}>{header}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {checkPreviewRows.length > 0 ? checkPreviewRows.map((row, index) => (
+                        <tr key={row.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+                          {editingPreviewRowId === row.id ? (
+                            <>
+                              <td className="border border-gray-200 p-0"><input value={row.tanggalRekon} onChange={(event) => updateDropPollPreviewRow(row.id, 'tanggalRekon', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.companyCode} onChange={(event) => updateDropPollPreviewRow(row.id, 'companyCode', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.documentDate} onChange={(event) => updateDropPollPreviewRow(row.id, 'documentDate', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.postingDate} onChange={(event) => updateDropPollPreviewRow(row.id, 'postingDate', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.noBukti} onChange={(event) => updateDropPollPreviewRow(row.id, 'noBukti', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.reference} onChange={(event) => updateDropPollPreviewRow(row.id, 'reference', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.dropPool} onChange={(event) => updateDropPollPreviewRow(row.id, 'dropPool', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] font-bold outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.profitCenterD} onChange={(event) => updateDropPollPreviewRow(row.id, 'profitCenterD', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.glAkunD} onChange={(event) => updateDropPollPreviewRow(row.id, 'glAkunD', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.profitCenterK} onChange={(event) => updateDropPollPreviewRow(row.id, 'profitCenterK', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.glAkunK} onChange={(event) => updateDropPollPreviewRow(row.id, 'glAkunK', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.amount} onChange={(event) => updateDropPollPreviewRow(row.id, 'amount', event.target.value)} className="h-8 w-full border-0 px-2 text-right font-mono text-[11px] outline-none focus:bg-emerald-50" /></td>
+                              <td className="border border-gray-200 p-0"><input value={row.keterangan} onChange={(event) => updateDropPollPreviewRow(row.id, 'keterangan', event.target.value)} className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50" /></td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="border border-gray-200 px-3 py-2">{row.tanggalRekon}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.companyCode}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.documentDate}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.postingDate}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.noBukti}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.reference}</td>
+                              <td className="border border-gray-200 px-3 py-2 font-bold">{row.dropPool}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.profitCenterD}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.glAkunD}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.profitCenterK}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.glAkunK}</td>
+                              <td className="border border-gray-200 px-3 py-2 text-right font-mono">{formatNumberGroup(row.amount)}</td>
+                              <td className="border border-gray-200 px-3 py-2">{row.keterangan}</td>
+                            </>
+                          )}
+                          <td className="border border-gray-200 px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setEditingPreviewRowId(editingPreviewRowId === row.id ? null : row.id)}
+                                className={`rounded-lg p-1.5 transition-colors ${editingPreviewRowId === row.id ? 'bg-green-100 text-green-600 hover:bg-green-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                                title={editingPreviewRowId === row.id ? 'Simpan' : 'Edit Baris'}
+                              >
+                                {editingPreviewRowId === row.id ? <Check className="h-3.5 w-3.5" /> : <Edit2 className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                onClick={() => deleteDropPollPreviewRow(row.id)}
+                                className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-50"
+                                title="Hapus Data"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={DROP_POLL_HEADERS.length + 1} className="px-4 py-8 text-center text-xs italic text-gray-400">
+                            Belum ada data Return/Get yang disimpan untuk cabang ini.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </AnimatedModal>
+
+      {isTampunganOpen && checkModal && (
+        <div
+          className="fixed z-[125] flex max-h-[72vh] w-[min(980px,calc(100vw-24px))] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl"
+          style={{ left: tampunganPosition.x, top: tampunganPosition.y }}
+        >
+          <div
+            onMouseDown={startTampunganDrag}
+            className="flex cursor-move items-center justify-between border-b border-gray-100 bg-white px-5 py-4"
+          >
+            <div>
+              <h2 className="text-lg font-black text-gray-800">Cek Tampungan {checkModal.cabang}</h2>
+              <p className="mt-1 text-xs font-medium text-gray-500">Data Hutang Operasional Lain status Belum untuk cabang terkait.</p>
+            </div>
+            <button
+              onClick={() => setIsTampunganOpen(false)}
+              className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto bg-gray-50/30">
+            <table className="w-full min-w-[920px] border-collapse text-[12px]">
+              <thead className="sticky top-0 z-20">
+                <tr className="border-b border-[#004237] bg-[#005245]">
+                  <th className="border-r border-[#004237]/50 px-4 py-2 text-left text-[9px] font-black uppercase tracking-widest text-white">Tanggal</th>
+                  <th className="border-r border-[#004237]/50 px-4 py-2 text-left text-[9px] font-black uppercase tracking-widest text-white">AKUN (Db)</th>
+                  <th className="border-r border-[#004237]/50 px-4 py-2 text-left text-[9px] font-black uppercase tracking-widest text-white">AKUN (Cr)</th>
+                  <th className="border-r border-[#004237]/50 px-4 py-2 text-right text-[9px] font-black uppercase tracking-widest text-white">Nominal</th>
+                  <th className="border-r border-[#004237]/50 px-4 py-2 text-left text-[9px] font-black uppercase tracking-widest text-white">Keterangan</th>
+                  <th className="px-4 py-2 text-center text-[9px] font-black uppercase tracking-widest text-white">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {isLoadingTampungan ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center">
+                      <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-4 border-[#009B4F]/20 border-t-[#009B4F]" />
+                      <p className="text-xs font-medium text-gray-400">Memuat data tampungan...</p>
+                    </td>
+                  </tr>
+                ) : hutangTampunganRows.length > 0 ? (
+                  hutangTampunganRows.map((item, index) => (
+                    <tr key={item.rowIndex} className={`transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-emerald-50/40`}>
+                      <td className="whitespace-nowrap border-r border-gray-50 px-4 py-2 text-[11px] font-semibold text-gray-600">{item.tanggal}</td>
+                      <td className="border-r border-gray-50 px-4 py-2 text-[11px] text-gray-800">{item.akunDb}</td>
+                      <td className="border-r border-gray-50 px-4 py-2 text-[11px] text-gray-800">{item.akunCr}</td>
+                      <td className="border-r border-gray-50 px-4 py-2 text-right font-mono text-[11px] font-black text-blue-600">{formatCurrency(item.nominal)}</td>
+                      <td className="max-w-xs truncate border-r border-gray-50 px-4 py-2 text-[11px] font-medium text-gray-700 hover:whitespace-normal">{item.keterangan}</td>
+                      <td className="px-4 py-2 text-center">
+                        <div className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-red-700 shadow-sm">
+                          <AlertCircle className="h-3 w-3" />
+                          {item.status || 'Belum'}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-xs italic text-gray-400">
+                      Tidak ada data Hutang Operasional Lain berstatus Belum untuk cabang ini.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <AnimatedModal isOpen={!!actionModalType} className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
+        <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+            <h2 className="text-lg font-black text-gray-800">
+              {actionModalType === 'return' ? 'Return Data Outstanding' : 'Get Data Outstanding'}
+            </h2>
+            <button
+              onClick={closeActionModal}
+              className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+              disabled={isSavingActionRows}
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto bg-gray-50/50 p-4">
+            <table className="w-full min-w-[920px] border-collapse bg-white text-[12px]">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-[#005245]">
+                  <th className="w-12 border border-[#004237] px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">No</th>
+                  <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">
+                    {actionModalType === 'return' ? 'Return Date' : 'Get Date'}
+                  </th>
+                  <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">No. Bukti</th>
+                  <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Reference</th>
+                  <th className="border border-[#004237] px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-white">Amount</th>
+                  <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Keterangan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {actionModalRows.map((row, index) => (
+                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+                    <td className="border border-gray-200 px-3 py-1 text-center font-mono text-[11px] text-gray-400">{index + 1}</td>
+                    <td className="border border-gray-200 p-0">
+                      <input
+                        type="date"
+                        value={row.date}
+                        onChange={(event) => updateActionModalRow(index, 'date', event.target.value)}
+                        className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                      />
+                    </td>
+                    <td className="border border-gray-200 p-0">
+                      <input
+                        value={row.noBukti}
+                        onChange={(event) => updateActionModalRow(index, 'noBukti', event.target.value)}
+                        className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                      />
+                    </td>
+                    <td className="border border-gray-200 p-0">
+                      <input
+                        value={row.reference}
+                        onChange={(event) => updateActionModalRow(index, 'reference', event.target.value)}
+                        className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                      />
+                    </td>
+                    <td className="border border-gray-200 p-0">
+                      <input
+                        value={row.amount}
+                        onChange={(event) => updateActionModalRow(index, 'amount', event.target.value)}
+                        className="h-8 w-full border-0 px-2 text-right font-mono text-[11px] outline-none focus:bg-emerald-50"
+                      />
+                    </td>
+                    <td className="border border-gray-200 p-0">
+                      <input
+                        value={row.keterangan}
+                        onChange={(event) => updateActionModalRow(index, 'keterangan', event.target.value)}
+                        className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-col justify-between gap-3 border-t border-gray-100 bg-white px-5 py-4 sm:flex-row sm:items-center">
+            <button
+              onClick={addActionModalRow}
+              disabled={isSavingActionRows}
+              className="flex w-fit items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              <Plus className="h-4 w-4" />
+              Tambah Baris
+            </button>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={closeActionModal}
+                disabled={isSavingActionRows}
+                className="rounded-lg border border-gray-200 bg-white px-5 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={saveActionRows}
+                disabled={isSavingActionRows}
+                className="rounded-lg bg-[#009B4F] px-5 py-2 text-xs font-bold text-white shadow-md shadow-[#009B4F]/10 transition-colors hover:bg-[#008543] disabled:opacity-60 disabled:cursor-wait"
+              >
+                {isSavingActionRows ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </AnimatedModal>
     </div>
   );
 }

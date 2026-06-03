@@ -15,6 +15,7 @@ export const TAB_TO_PATH: Record<string, string> = {
   'user-management': '/settings/user-management',
   'setting-supporting-apps': '/settings/supporting-apps',
   'setting-general': '/settings/manajemen-data',
+  'setting-upload-excel': '/settings/set-upload-excel',
   'setting-template-blast': '/settings/template-blast',
   'setting-template-blast-whatsapp': '/settings/template-blast-whatsapp',
 };

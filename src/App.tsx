@@ -224,7 +224,7 @@ export default function App() {
       if (timeoutId) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
         handleLogout();
-      }, 15 * 60 * 1000); // 15 minutes
+      }, 60 * 60 * 1000); // 15 minutes
     };
 
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
@@ -360,6 +360,7 @@ export default function App() {
               <Route path="/supporting-app/:id" element={<SupportingAppView tabId={activeTab} />} />
               <Route path="/settings/supporting-apps" element={guardRoute('setting-supporting-apps', <Settings type="supporting-apps" />)} />
               <Route path="/settings/manajemen-data" element={guardRoute('setting-general', <Settings type="general" />)} />
+              <Route path="/settings/set-upload-excel" element={guardRoute('setting-upload-excel', <Settings type="upload-excel" />)} />
               <Route path="/settings/template-blast" element={guardRoute('setting-template-blast', <Settings type="template-blast" />)} />
               <Route path="/settings/template-blast-whatsapp" element={guardRoute('setting-template-blast-whatsapp', <Settings type="template-blast-whatsapp" />)} />
               <Route path="/settings/user-management" element={guardRoute('user-management',

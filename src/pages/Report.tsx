@@ -557,19 +557,18 @@ export function Report({ currentUser }: { currentUser?: any }) {
               <button 
                 onClick={resetFilters}
                 className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors text-xs font-bold cursor-pointer"
-                title="Reset Filter"
+                title="Reset"
               >
                 <XCircle className="w-3.5 h-3.5" />
-                Reset Filter
+                Reset
               </button>
               {showData && (
                 <button 
                   onClick={() => fetchSummary()}
-                  className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-emerald-50 hover:text-[#009B4F] transition-colors text-xs font-bold cursor-pointer"
+                  className={`p-2 bg-gray-50 text-gray-500 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer ${isLoading ? 'animate-spin' : ''}`}
                   title="Refresh Data"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                  Refresh Data
+                  <RefreshCw className="w-4 h-4" />
                 </button>
               )}
               {showData && (
@@ -1409,27 +1408,26 @@ function SummaryMoker({ currentUser }: { currentUser?: any }) {
           <div className="flex flex-wrap items-center gap-3">
             <button 
               onClick={resetFilters}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl hover:bg-red-50 hover:text-red-600 transition-all text-xs font-bold shadow-sm cursor-pointer"
-              title="Reset Filter"
+              className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors text-xs font-bold cursor-pointer"
+              title="Reset"
             >
               <XCircle className="w-4 h-4" />
-              Reset Filter
+              Reset
             </button>
             {showData && (
               <button 
                 onClick={fetchData}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl hover:bg-emerald-50 hover:text-[#009B4F] transition-all text-xs font-bold shadow-sm cursor-pointer"
+                className={`p-2 bg-gray-50 text-gray-500 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer ${isLoading ? 'animate-spin' : ''}`}
                 title="Refresh Data"
               >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                Refresh Data
+                <RefreshCw className="w-4 h-4" />
               </button>
             )}
             {showData && currentUser?.role !== 'guest' && (
               <button 
                 onClick={handleSyncCabang}
                 disabled={isLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50 transition-all text-xs font-bold shadow-sm cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-emerald-50 hover:text-[#009B4F] transition-colors text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-wait"
                 title="Sinkronisasi Data Cabang ke Firestore"
               >
                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -1440,7 +1438,7 @@ function SummaryMoker({ currentUser }: { currentUser?: any }) {
               <div className="relative z-50">
                 <button 
                   onClick={() => setIsExportOpen(!isExportOpen)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-[#009B4F] text-white rounded-xl hover:bg-[#008543] transition-all shadow-lg shadow-[#009B4F]/20 text-xs font-bold cursor-pointer"
+                  className="flex items-center gap-2 px-4 py-2 bg-[#009B4F] text-white rounded-lg hover:bg-[#008543] transition-all shadow-md shadow-[#009B4F]/10 text-xs font-bold cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   Export File
@@ -1616,6 +1614,8 @@ function SummaryMoker({ currentUser }: { currentUser?: any }) {
 }
 
 function SaldoBankHarianReport() {
+  const [chartStartDate, setChartStartDate] = useState('');
+  const [chartEndDate, setChartEndDate] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [rows, setRows] = useState<SaldoHarianRow[]>([]);
@@ -1701,6 +1701,11 @@ function SaldoBankHarianReport() {
     toast.success('Filter telah direset');
   };
 
+  const resetChartFilters = () => {
+    setChartStartDate('');
+    setChartEndDate('');
+  };
+
   const filteredRows = useMemo(() => {
     return rows
       .filter(item => {
@@ -1727,9 +1732,14 @@ function SaldoBankHarianReport() {
 
   const chartRows = useMemo(() => (
     rows
-      .filter(item => item.tanggal && item.bank)
+      .filter(item => (
+        item.tanggal &&
+        item.bank &&
+        (!chartStartDate || item.tanggal >= chartStartDate) &&
+        (!chartEndDate || item.tanggal <= chartEndDate)
+      ))
       .sort((a, b) => (a.tanggal || '').localeCompare(b.tanggal || '') || normalizeBankName(a.bank).localeCompare(normalizeBankName(b.bank)))
-  ), [rows]);
+  ), [rows, chartStartDate, chartEndDate]);
 
   const chartData = useMemo(() => {
     const dates = Array.from(new Set(chartRows.map(item => item.tanggal))).sort();
@@ -1958,19 +1968,46 @@ function SaldoBankHarianReport() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-4 border-b border-gray-100 flex flex-col xl:flex-row xl:items-end justify-between gap-4">
           <div>
-            <h3 className="font-bold text-gray-800 text-base">Trend Saldo Bank</h3>
-            <p className="text-xs text-gray-500 mt-1">Grafik otomatis menampilkan seluruh data Saldo Bank Harian.</p>
+            <h3 className="font-bold text-gray-800 text-xl tracking-tight">Trend Saldo Bank</h3>
           </div>
-          <button
-            onClick={() => fetchSaldoRows()}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-emerald-50 hover:text-[#009B4F] transition-colors text-xs font-bold cursor-pointer disabled:opacity-60 disabled:cursor-wait"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh Chart
-          </button>
+          <div className="flex flex-col sm:flex-row sm:items-end justify-end gap-3">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Rentang Tanggal</label>
+              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 h-[42px] focus-within:ring-2 focus-within:ring-[#009B4F]/20 focus-within:border-[#009B4F] transition-all">
+                <Calendar className="w-4 h-4 text-gray-400 shrink-0" />
+                <input
+                  type="date"
+                  value={chartStartDate}
+                  onChange={(event) => setChartStartDate(event.target.value)}
+                  className="outline-none text-xs w-full bg-transparent font-medium text-gray-700"
+                />
+                <span className="text-gray-300">/</span>
+                <input
+                  type="date"
+                  value={chartEndDate}
+                  onChange={(event) => setChartEndDate(event.target.value)}
+                  className="outline-none text-xs w-full bg-transparent font-medium text-gray-700"
+                />
+              </div>
+            </div>
+            <button
+              onClick={resetChartFilters}
+              className="flex h-[42px] items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors text-xs font-bold cursor-pointer"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Reset
+            </button>
+            <button
+              onClick={() => fetchSaldoRows()}
+              disabled={isLoading}
+              className={`h-[42px] p-2 bg-gray-50 text-gray-500 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait ${isLoading ? 'animate-spin' : ''}`}
+              title="Refresh Chart"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
         <div className="p-4">
           {isLoading && rows.length === 0 ? (
@@ -1982,6 +2019,7 @@ function SaldoBankHarianReport() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
+        <h3 className="font-bold text-gray-800 text-base">Rekapitulasi Saldo Bank Harian</h3>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-4 rounded-xl border border-gray-200 items-end">
           <div className="md:col-span-2 space-y-2">
             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Rentang Tanggal</label>
@@ -2015,7 +2053,7 @@ function SaldoBankHarianReport() {
               className="flex items-center gap-2 px-3 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors text-xs font-bold cursor-pointer"
             >
               <XCircle className="w-3.5 h-3.5" />
-              Reset Filter
+              Reset
             </button>
             {showData && (
               <button
@@ -2070,9 +2108,6 @@ function SaldoBankHarianReport() {
       {showData && (
         <div className="space-y-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100">
-              <h3 className="font-bold text-gray-800 text-base">Rekapitulasi Saldo Bank Harian</h3>
-            </div>
             <div className="overflow-x-auto max-h-[calc(100vh-360px)]">
               <table className="w-full text-sm border-collapse min-w-[1180px]">
                 <thead className="sticky top-0 z-20">

@@ -80,6 +80,7 @@ export const BASE_MENU_ITEMS: MenuItem[] = [
     subItems: [
       { id: 'setting-supporting-apps', label: 'Supporting App' },
       { id: 'setting-general', label: 'Manajemen Data' },
+      { id: 'setting-upload-excel', label: 'Set Upload Excel' },
       { id: 'setting-template-blast', label: 'Template Blast Email' },
       { id: 'setting-template-blast-whatsapp', label: 'Template Blast WhatsApp' },
       { id: 'user-management', label: 'Manajemen User' },
@@ -129,6 +130,7 @@ export const DEFAULT_ROLE_ACCESS_CONFIGS: RoleAccessConfig[] = [
       .filter(item => ![
         'setting-supporting-apps',
         'setting-general',
+        'setting-upload-excel',
         'setting-template-blast',
         'setting-template-blast-whatsapp',
         'user-management',

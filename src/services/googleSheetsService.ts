@@ -6,6 +6,8 @@
 const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
 const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
 
+const encodeRange = (range: string) => encodeURIComponent(range);
+
 export interface GoogleSheetConfig {
   spreadsheetId: string;
   range: string;
@@ -68,7 +70,7 @@ export class GoogleSheetsService {
     }
 
     const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}:append?valueInputOption=USER_ENTERED`,
       {
         method: 'POST',
         headers: {
@@ -98,7 +100,7 @@ export class GoogleSheetsService {
     // If we have an access token, use it (preferred)
     if (this.accessToken) {
       const response = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueRenderOption=${valueRenderOption}`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}?valueRenderOption=${valueRenderOption}`,
         {
           method: 'GET',
           headers: {
@@ -124,7 +126,7 @@ export class GoogleSheetsService {
     // Fallback to API key if spreadsheet is public
     if (apiKey) {
       const response = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueRenderOption=${valueRenderOption}&key=${apiKey}`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}?valueRenderOption=${valueRenderOption}&key=${apiKey}`,
         {
           method: 'GET',
         }
@@ -160,7 +162,7 @@ export class GoogleSheetsService {
     }
 
     const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}?valueInputOption=USER_ENTERED`,
       {
         method: 'PUT',
         headers: {

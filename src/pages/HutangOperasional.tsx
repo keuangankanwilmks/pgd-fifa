@@ -76,9 +76,9 @@ const pageSizeOptions: { value: PageSizeValue; label: string }[] = [
   { value: 'all', label: 'All' },
 ];
 const defaultStatusOptions = [
-  { value: 'Belum', label: 'Belum' },
-  { value: 'Hold', label: 'Hold' },
-  { value: 'Selesai', label: 'Selesai' },
+  { value: 'BELUM', label: 'BELUM' },
+  { value: 'HOLD', label: 'HOLD' },
+  { value: 'SELESAI', label: 'SELESAI' },
 ];
 const addRowFields: (keyof NewHutangRow)[] = ['tanggal', 'akunDb', 'akunCr', 'nominal', 'keterangan', 'status', 'tanggalSelesai'];
 
@@ -88,7 +88,7 @@ const createBlankRow = (): NewHutangRow => ({
   akunCr: '',
   nominal: '',
   keterangan: '',
-  status: 'Belum',
+  status: 'BELUM',
   tanggalSelesai: '',
 });
 
@@ -104,7 +104,11 @@ const parseCurrencyValue = (value: unknown) => {
 };
 
 const normalizeText = (value: string) => value.trim().replace(/\s+/g, ' ').toUpperCase();
-const isStatusBelum = (status: string) => normalizeText(status || 'Belum') === 'BELUM';
+const normalizeStatus = (status: string) => {
+  const normalized = normalizeText(status || 'BELUM');
+  return ['BELUM', 'HOLD', 'SELESAI'].includes(normalized) ? normalized : 'BELUM';
+};
+const isStatusBelum = (status: string) => normalizeStatus(status) === 'BELUM';
 const escapeHtml = (value: unknown) => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -128,7 +132,7 @@ const toSheetRow = (row: NewHutangRow) => [
   row.akunCr,
   parseCurrencyValue(row.nominal),
   row.keterangan,
-  row.status || 'Belum',
+  normalizeStatus(row.status),
   row.tanggalSelesai,
 ];
 
@@ -190,7 +194,7 @@ export function HutangOperasional() {
         akunCr: v[2] || '',
         nominal: parseCurrencyValue(v[3]),
         keterangan: v[4] || '',
-        status: v[5] || 'Belum',
+        status: normalizeStatus(v[5] || 'BELUM'),
         tanggalSelesai: v[6] || '',
       }));
 
@@ -198,9 +202,7 @@ export function HutangOperasional() {
       setUnitKerjaOptions(Array.from(new Set(mapped.map(item => item.akunCr))).filter(Boolean).sort().map(value => ({ value, label: value })));
       setBankOptions(Array.from(new Set(mapped.map(item => item.akunDb))).filter(Boolean).sort().map(value => ({ value, label: value })));
 
-      const sheetStatuses = Array.from(new Set(mapped.map(item => item.status || 'Belum'))).filter(Boolean);
-      const mergedStatuses = Array.from(new Set([...defaultStatusOptions.map(item => item.value), ...sheetStatuses]));
-      setStatusOptions(mergedStatuses.sort().map(value => ({ value, label: value })));
+      setStatusOptions(defaultStatusOptions);
     } catch (error: any) {
       console.error('Error fetching hutang operasional:', error);
       toast.error(`Gagal memuat data: ${error.message}`);
@@ -238,7 +240,7 @@ export function HutangOperasional() {
         item.akunDb.toLowerCase().includes(keyword);
       const matchUnitKerja = !selectedUnitKerja || item.akunCr === selectedUnitKerja.value;
       const matchBank = !selectedBank || item.akunDb === selectedBank.value;
-      const matchStatus = !selectedStatus || item.status === selectedStatus.value;
+      const matchStatus = !selectedStatus || normalizeStatus(item.status) === selectedStatus.value;
 
       let matchDate = true;
       if (startDate || endDate) {
@@ -450,11 +452,11 @@ export function HutangOperasional() {
         editData.akunCr,
         editData.nominal,
         editData.keterangan,
-        editData.status,
+        normalizeStatus(editData.status),
         editData.tanggalSelesai,
       ]]);
 
-      setRawData(prev => prev.map(item => item.rowIndex === editData.rowIndex ? { ...editData } : item));
+      setRawData(prev => prev.map(item => item.rowIndex === editData.rowIndex ? { ...editData, status: normalizeStatus(editData.status) } : item));
       setEditingRow(null);
       setEditData(null);
       toast.success('Data berhasil disimpan ke Google Sheets');
@@ -544,8 +546,9 @@ export function HutangOperasional() {
   };
 
   const updateNewRow = (rowIndex: number, field: keyof NewHutangRow, value: string) => {
+    const nextValue = field === 'status' ? normalizeStatus(value) : value;
     setNewRows(prev => prev.map((row, index) => (
-      index === rowIndex ? { ...row, [field]: value } : row
+      index === rowIndex ? { ...row, [field]: nextValue } : row
     )));
   };
 
@@ -579,7 +582,7 @@ export function HutangOperasional() {
           const targetIndex = rowIndex + rowOffset;
           next[targetIndex] = {
             ...next[targetIndex],
-            [targetField]: targetField === 'status' ? (cell.trim() || 'Belum') : cell.trim(),
+            [targetField]: targetField === 'status' ? normalizeStatus(cell.trim()) : cell.trim(),
           };
         });
       });
@@ -1030,7 +1033,7 @@ export function HutangOperasional() {
                       <td className="border-r border-gray-50 px-4 py-0.5 text-center">
                         {isEditing ? (
                           <select
-                            value={editData?.status || 'Belum'}
+                            value={editData?.status || 'BELUM'}
                             onChange={(event) => setEditData(prev => prev ? { ...prev, status: event.target.value } : null)}
                             className="h-7 rounded border border-gray-200 bg-white px-2 text-center text-[11px] font-bold outline-none focus:border-[#009B4F]"
                           >

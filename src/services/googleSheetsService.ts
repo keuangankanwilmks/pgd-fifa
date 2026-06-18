@@ -1,453 +1,158 @@
 /**
  * Google Sheets Service
- * Handles OAuth2 flow and API interactions for Google Sheets.
+ * Hybrid access:
+ * - Read/load data directly from the public Google Sheets API with VITE_GOOGLE_API_KEY.
+ * - Write/update/delete data through the Vercel API Route with a server-side service account.
  */
-
-const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
-const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
-
-const encodeRange = (range: string) => encodeURIComponent(range);
 
 export interface GoogleSheetConfig {
   spreadsheetId: string;
   range: string;
 }
 
+type ValueRenderOption = 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA';
+
+type SheetOperation =
+  | 'readData'
+  | 'appendData'
+  | 'updateData'
+  | 'getSheetIdByName'
+  | 'ensureSheet'
+  | 'deleteRow'
+  | 'deleteRows'
+  | 'batchUpdateValues'
+  | 'insertRows';
+
+interface SheetsProxyPayload {
+  operation: SheetOperation;
+  spreadsheetId: string;
+  range?: string;
+  values?: any[][];
+  valueRenderOption?: ValueRenderOption;
+  sheetName?: string;
+  sheetId?: number;
+  rowIndex?: number;
+  rowIndices?: number[];
+  startIndex?: number;
+  count?: number;
+  data?: { range: string; values: any[][] }[];
+  secret?: string;
+}
+
 export class GoogleSheetsService {
-  private accessToken: string | null = null;
+  private proxyUrl = import.meta.env.VITE_SHEETS_PROXY_URL || '/api/sheets-proxy';
+  private proxySecret = import.meta.env.VITE_SHEETS_PROXY_SECRET || '';
+  private apiBaseUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-  constructor(private clientId: string) {}
-
-  /**
-   * Checks if the service has an access token.
-   */
   hasToken(): boolean {
-    return !!this.accessToken;
+    return true;
   }
 
-  /**
-   * Initiates the OAuth2 popup flow to get an access token.
-   */
   async authorize(): Promise<string> {
-    if (!this.clientId) {
-      throw new Error('Google Client ID belum dikonfigurasi. Silakan cek file .env');
-    }
+    return 'vercel-sheets-proxy';
+  }
 
-    return new Promise((resolve, reject) => {
-      try {
-        // @ts-ignore
-        if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
-          reject(new Error('Google Identity Services library tidak termuat. Pastikan script GIS ada di index.html'));
-          return;
-        }
-
-        // @ts-ignore
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: this.clientId,
-          scope: SCOPES,
-          callback: (response: any) => {
-            if (response.error) {
-              reject(response);
-              return;
-            }
-            this.accessToken = response.access_token;
-            resolve(response.access_token);
-          },
-        });
-        client.requestAccessToken();
-      } catch (err) {
-        reject(err);
-      }
+  private async call(payload: SheetsProxyPayload) {
+    const response = await fetch(this.proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.proxySecret ? { 'X-Sheets-Proxy-Secret': this.proxySecret } : {}),
+      },
+      body: JSON.stringify({
+        ...payload,
+        ...(this.proxySecret ? { secret: this.proxySecret } : {}),
+      }),
     });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || data?.success === false) {
+      throw new Error(data?.error || `Gagal mengakses Google Sheets proxy (${response.status})`);
+    }
+
+    return data;
   }
 
-  /**
-   * Saves data to a specific Google Sheet.
-   */
+  private getPublicApiKey(): string {
+    const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error('VITE_GOOGLE_API_KEY belum dikonfigurasi di environment frontend');
+    }
+    return apiKey;
+  }
+
+  private async readPublicJson(url: string, fallbackMessage: string) {
+    const response = await fetch(url);
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(data?.error?.message || fallbackMessage);
+    }
+
+    return data;
+  }
+
   async appendData(spreadsheetId: string, range: string, values: any[][]) {
-    if (!this.accessToken) {
-      await this.authorize();
-    }
-
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}:append?valueInputOption=USER_ENTERED`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          values: values,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error.message || 'Failed to append data to Google Sheets');
-    }
-
-    return response.json();
+    return this.call({ operation: 'appendData', spreadsheetId, range, values });
   }
 
-  /**
-   * Reads data from a specific Google Sheet.
-   */
-  async readData(spreadsheetId: string, range: string, valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA' = 'FORMATTED_VALUE', forceAuthorize = false) {
-    const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
-    
-    // If we have an access token, use it (preferred)
-    if (this.accessToken) {
-      const response = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}?valueRenderOption=${valueRenderOption}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.values;
-      }
-      
-      // If unauthorized, maybe token expired, try to re-authorize or fallback to API key
-      if (response.status === 401) {
-        this.accessToken = null;
-      } else {
-        const error = await response.json();
-        throw new Error(error.error.message || 'Failed to read data from Google Sheets');
-      }
-    }
-
-    // Fallback to API key if spreadsheet is public
-    if (apiKey) {
-      const response = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}?valueRenderOption=${valueRenderOption}&key=${apiKey}`,
-        {
-          method: 'GET',
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.values;
-      }
-
-      // If API key fails, and we don't want to force authorize, throw error
-      if (!forceAuthorize) {
-        const error = await response.json();
-        throw new Error(error.error.message || 'Failed to read data from Google Sheets (Public Access)');
-      }
-    }
-
-    // If no token and no API key (or forceAuthorize is true), we must authorize
-    if (forceAuthorize || !apiKey) {
-      await this.authorize();
-      return this.readData(spreadsheetId, range, valueRenderOption, true);
-    }
-
-    throw new Error('Google Sheets access token not found and API Key not available or failed.');
+  async readData(
+    spreadsheetId: string,
+    range: string,
+    valueRenderOption: ValueRenderOption = 'FORMATTED_VALUE',
+    _forceAuthorize = false,
+  ) {
+    const apiKey = this.getPublicApiKey();
+    const params = new URLSearchParams({
+      key: apiKey,
+      valueRenderOption,
+    });
+    const url = `${this.apiBaseUrl}/${spreadsheetId}/values/${encodeURIComponent(range)}?${params.toString()}`;
+    const data = await this.readPublicJson(url, `Gagal membaca data Google Sheet range ${range}`);
+    return data.values || [];
   }
 
-  /**
-   * Updates data in a specific range.
-   */
   async updateData(spreadsheetId: string, range: string, values: any[][]) {
-    if (!this.accessToken) {
-      await this.authorize();
-    }
-
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeRange(range)}?valueInputOption=USER_ENTERED`,
-      {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          values: values,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error.message || 'Failed to update data in Google Sheets');
-    }
-
-    return response.json();
+    return this.call({ operation: 'updateData', spreadsheetId, range, values });
   }
 
-  /**
-   * Gets the sheet ID for a given sheet name.
-   */
   async getSheetIdByName(spreadsheetId: string, sheetName: string): Promise<number | null> {
-    const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
-
-    const fetchMetadata = async (useToken: boolean) => {
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties${!useToken && apiKey ? `&key=${apiKey}` : ''}`;
-      const headers: any = {};
-      if (useToken && this.accessToken) {
-        headers['Authorization'] = `Bearer ${this.accessToken}`;
-      }
-
-      const response = await fetch(url, { method: 'GET', headers });
-      if (!response.ok) return null;
-      return response.json();
-    };
-
-    let data = null;
-    if (this.accessToken) {
-      data = await fetchMetadata(true);
-    }
-
-    if (!data && apiKey) {
-      data = await fetchMetadata(false);
-    }
-
-    if (!data) {
-      await this.authorize();
-      data = await fetchMetadata(true);
-    }
-
-    if (!data) {
-      throw new Error('Failed to fetch spreadsheet metadata');
-    }
-
-    const sheet = data.sheets.find((s: any) => s.properties.title === sheetName);
-    return sheet ? sheet.properties.sheetId : null;
+    const apiKey = this.getPublicApiKey();
+    const params = new URLSearchParams({
+      key: apiKey,
+      fields: 'sheets.properties',
+    });
+    const url = `${this.apiBaseUrl}/${spreadsheetId}?${params.toString()}`;
+    const data = await this.readPublicJson(url, `Gagal membaca metadata Google Sheet ${sheetName}`);
+    const sheet = data.sheets?.find((item: any) => item.properties?.title === sheetName);
+    return typeof sheet?.properties?.sheetId === 'number' ? sheet.properties.sheetId : null;
   }
 
-  /**
-   * Creates a sheet if it does not exist and returns its sheet ID.
-   */
   async ensureSheet(spreadsheetId: string, sheetName: string): Promise<number> {
-    const existingSheetId = await this.getSheetIdByName(spreadsheetId, sheetName);
-    if (existingSheetId !== null) return existingSheetId;
-
-    if (!this.accessToken) {
-      await this.authorize();
-    }
-
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requests: [
-            {
-              addSheet: {
-                properties: {
-                  title: sheetName,
-                },
-              },
-            },
-          ],
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error.message || `Failed to create sheet ${sheetName}`);
-    }
-
-    const data = await response.json();
-    const createdSheetId = data.replies?.[0]?.addSheet?.properties?.sheetId;
-    if (typeof createdSheetId !== 'number') {
+    const data = await this.call({ operation: 'ensureSheet', spreadsheetId, sheetName });
+    if (typeof data.sheetId !== 'number') {
       throw new Error(`Sheet ${sheetName} berhasil dibuat, tetapi sheetId tidak ditemukan`);
     }
-
-    return createdSheetId;
+    return data.sheetId;
   }
 
-  /**
-   * Deletes a row using batchUpdate.
-   */
   async deleteRow(spreadsheetId: string, sheetId: number, rowIndex: number) {
-    if (!this.accessToken) {
-      await this.authorize();
-    }
-
-    const performDelete = async () => {
-      const response = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            requests: [
-              {
-                deleteDimension: {
-                  range: {
-                    sheetId: sheetId,
-                    dimension: 'ROWS',
-                    startIndex: rowIndex,
-                    endIndex: rowIndex + 1,
-                  },
-                },
-              },
-            ],
-          }),
-        }
-      );
-
-      if (response.status === 401) {
-        this.accessToken = null;
-        return null; // Signal retry
-      }
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error.message || 'Failed to delete row in Google Sheets');
-      }
-
-      return response.json();
-    };
-
-    let result = await performDelete();
-    
-    // Retry once if 401
-    if (result === null) {
-      await this.authorize();
-      result = await performDelete();
-      if (result === null) {
-        throw new Error('Unauthorized after retry. Please reconnect your Google account.');
-      }
-    }
-
-    return result;
+    return this.call({ operation: 'deleteRow', spreadsheetId, sheetId, rowIndex });
   }
 
-  /**
-   * Deletes multiple rows using batchUpdate.
-   */
   async deleteRows(spreadsheetId: string, sheetId: number, rowIndices: number[]) {
-    if (!this.accessToken) {
-      await this.authorize();
-    }
-
-    // Sort row indices in descending order to avoid index shifting issues
-    const sortedIndices = [...rowIndices].sort((a, b) => b - a);
-
-    const requests = sortedIndices.map(index => ({
-      deleteDimension: {
-        range: {
-          sheetId: sheetId,
-          dimension: 'ROWS',
-          startIndex: index,
-          endIndex: index + 1,
-        },
-      },
-    }));
-
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requests: requests,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error.message || 'Failed to delete rows in Google Sheets');
-    }
-
-    return response.json();
+    return this.call({ operation: 'deleteRows', spreadsheetId, sheetId, rowIndices });
   }
 
-  /**
-   * Updates multiple ranges in a single request.
-   */
-  async batchUpdateValues(spreadsheetId: string, data: { range: string, values: any[][] }[]) {
-    if (!this.accessToken) {
-      await this.authorize();
-    }
-
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          valueInputOption: 'USER_ENTERED',
-          data: data,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error.message || 'Failed to batch update data in Google Sheets');
-    }
-
-    return response.json();
+  async batchUpdateValues(spreadsheetId: string, data: { range: string; values: any[][] }[]) {
+    return this.call({ operation: 'batchUpdateValues', spreadsheetId, data });
   }
 
-  /**
-   * Inserts rows using batchUpdate.
-   */
   async insertRows(spreadsheetId: string, sheetId: number, startIndex: number, count: number) {
-    if (!this.accessToken) {
-      await this.authorize();
-    }
-
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requests: [
-            {
-              insertDimension: {
-                range: {
-                  sheetId: sheetId,
-                  dimension: 'ROWS',
-                  startIndex: startIndex,
-                  endIndex: startIndex + count,
-                },
-                inheritFromBefore: true,
-              },
-            },
-          ],
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error.message || 'Failed to insert rows in Google Sheets');
-    }
-
-    return response.json();
+    return this.call({ operation: 'insertRows', spreadsheetId, sheetId, startIndex, count });
   }
 }
 
-export const googleSheetsService = new GoogleSheetsService(import.meta.env.VITE_GOOGLE_CLIENT_ID || '');
+export const googleSheetsService = new GoogleSheetsService();
 export default googleSheetsService;

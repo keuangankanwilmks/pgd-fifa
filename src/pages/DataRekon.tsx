@@ -8,6 +8,7 @@ import { googleSheetsService } from '../services/googleSheetsService';
 import { norekService } from '../services/norekService';
 import { useNotifications } from '../contexts/NotificationContext';
 import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDropdown';
+import { canModifyDatabase, type RoleDatabasePermissionMap } from '../constants/databasePermissions';
 
 import { User } from '../App';
 
@@ -15,9 +16,10 @@ interface DataRekonProps {
   bank: string;
   onUpdateRekon?: (bank: string, date: string, sistemData: any[], bankData: any[], rowIndices: number[]) => void;
   currentUser?: User | null;
+  roleDatabasePermissionMap?: RoleDatabasePermissionMap;
 }
 
-export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) {
+export function DataRekon({ bank, onUpdateRekon, currentUser, roleDatabasePermissionMap = {} }: DataRekonProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -38,6 +40,8 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState<PageSizeValue>(25);
   const { addNotification } = useNotifications();
+  const canEditData = canModifyDatabase(currentUser?.role, 'data-rekon', 'edit', roleDatabasePermissionMap);
+  const canDeleteData = canModifyDatabase(currentUser?.role, 'data-rekon', 'delete', roleDatabasePermissionMap);
 
   const pageSizeOptions: { value: PageSizeValue; label: string }[] = [
     { value: 25, label: '25' },
@@ -155,8 +159,8 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
   };
 
   const handleDeleteClick = (rowIndex: number) => {
-    if (currentUser?.role !== 'admin') {
-      toast.error('Hanya Administrator yang dapat menghapus data');
+    if (!canDeleteData) {
+      toast.error('Anda tidak memiliki akses untuk menghapus Data Rekon');
       return;
     }
 
@@ -181,8 +185,8 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
   };
 
   const handleBulkDelete = () => {
-    if (currentUser?.role !== 'admin') {
-      toast.error('Hanya Administrator yang dapat menghapus data');
+    if (!canDeleteData) {
+      toast.error('Anda tidak memiliki akses untuk menghapus Data Rekon');
       return;
     }
 
@@ -277,6 +281,10 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
   };
 
   const handleUpdateRekon = async () => {
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk mengedit Data Rekon');
+      return;
+    }
     if (uniqueDates.length !== 1) {
       toast.error('Update Rekon hanya bisa dilakukan untuk satu tanggal saja. Silakan filter tanggal terlebih dahulu.');
       return;
@@ -342,15 +350,17 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
             </div>
             
             <div className="flex items-center gap-2">
-              <button 
-                onClick={handleUpdateRekon}
-                disabled={isLoading || uniqueDates.length !== 1}
-                className="flex items-center gap-2 px-4 py-2 bg-[#009B4F] text-white rounded-lg hover:bg-[#008543] transition-colors text-sm font-bold shadow-sm cursor-pointer disabled:opacity-50"
-                title={uniqueDates.length !== 1 ? "Filter satu tanggal untuk update rekon" : ""}
-              >
-                <Play className="w-4 h-4" />
-                Update Rekon
-              </button>
+              {canEditData && (
+                <button 
+                  onClick={handleUpdateRekon}
+                  disabled={isLoading || uniqueDates.length !== 1}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#009B4F] text-white rounded-lg hover:bg-[#008543] transition-colors text-sm font-bold shadow-sm cursor-pointer disabled:opacity-50"
+                  title={uniqueDates.length !== 1 ? "Filter satu tanggal untuk update rekon" : ""}
+                >
+                  <Play className="w-4 h-4" />
+                  Update Rekon
+                </button>
+              )}
               <button 
                 onClick={exportToExcel}
                 className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm font-bold shadow-sm cursor-pointer"
@@ -358,7 +368,7 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
                 <Download className="w-4 h-4" />
                 Export
               </button>
-              {selectedRows.length > 0 && currentUser?.role === 'admin' && (
+              {selectedRows.length > 0 && canDeleteData && (
                 <button 
                   onClick={handleBulkDelete}
                   className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-bold shadow-sm cursor-pointer"
@@ -505,13 +515,15 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
             <thead className="sticky top-0 z-20">
               <tr className="bg-[#005245] border-b border-[#004237]">
                 <th className="text-center py-1.5 px-3 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50 w-12">
-                  <button onClick={toggleSelectAll} className="p-1 hover:bg-white/10 rounded transition-colors">
-                    {selectedRows.length === paginatedData.length && paginatedData.length > 0 ? (
-                      <CheckSquare className="w-4 h-4 text-white" />
-                    ) : (
-                      <Square className="w-4 h-4 text-white" />
-                    )}
-                  </button>
+                  {canDeleteData && (
+                    <button onClick={toggleSelectAll} className="p-1 hover:bg-white/10 rounded transition-colors">
+                      {selectedRows.length === paginatedData.length && paginatedData.length > 0 ? (
+                        <CheckSquare className="w-4 h-4 text-white" />
+                      ) : (
+                        <Square className="w-4 h-4 text-white" />
+                      )}
+                    </button>
+                  )}
                 </th>
                 <th className="text-center py-1.5 px-3 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50 w-12">No</th>
                 <th className="text-left py-1.5 px-5 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50">Tanggal</th>
@@ -541,16 +553,18 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
                   return (
                     <tr key={item.id} className={`transition-colors group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-emerald-50/40 ${selectedRows.includes(item.rowIndex) ? 'bg-emerald-50' : ''}`}>
                       <td className="py-0.5 px-3 text-center border-r border-gray-50">
-                        <button 
-                          onClick={() => toggleSelectRow(item.rowIndex)}
-                          className="p-1 hover:bg-gray-100 rounded transition-colors"
-                        >
-                          {selectedRows.includes(item.rowIndex) ? (
-                            <CheckSquare className="w-4 h-4 text-[#009B4F]" />
-                          ) : (
-                            <Square className="w-4 h-4 text-gray-300" />
-                          )}
-                        </button>
+                        {canDeleteData && (
+                          <button 
+                            onClick={() => toggleSelectRow(item.rowIndex)}
+                            className="p-1 hover:bg-gray-100 rounded transition-colors"
+                          >
+                            {selectedRows.includes(item.rowIndex) ? (
+                              <CheckSquare className="w-4 h-4 text-[#009B4F]" />
+                            ) : (
+                              <Square className="w-4 h-4 text-gray-300" />
+                            )}
+                          </button>
+                        )}
                       </td>
                       <td className="py-0.5 px-3 text-center text-gray-400 font-mono text-[11px] border-r border-gray-50">{rowNumber}</td>
                       <td className="py-0.5 px-5 text-gray-600 font-semibold border-r border-gray-50 whitespace-nowrap">{item.tanggal}</td>
@@ -581,7 +595,7 @@ export function DataRekon({ bank, onUpdateRekon, currentUser }: DataRekonProps) 
                         <span className="text-gray-500 font-medium italic text-[11px]">{item.catatan}</span>
                       </td>
                       <td className="py-0.5 px-5 text-center">
-                        {currentUser?.role === 'admin' && (
+                        {canDeleteData && (
                           <button 
                             onClick={() => handleDeleteClick(item.rowIndex)}
                             className="p-1 px-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"

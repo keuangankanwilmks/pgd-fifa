@@ -37,6 +37,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDropdown';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { AnimatedModal } from '../components/AnimatedModal';
+import { canModifyDatabase, type RoleDatabasePermissionMap } from '../constants/databasePermissions';
 
 interface HutangRecord {
   rowIndex: number;
@@ -66,6 +67,11 @@ interface BlastEmailGroup {
   whatsapp: string;
   rows: HutangRecord[];
   totalNominal: number;
+}
+
+interface HutangOperasionalProps {
+  currentUser?: any;
+  roleDatabasePermissionMap?: RoleDatabasePermissionMap;
 }
 
 const sheetName = 'HutOpr';
@@ -136,7 +142,7 @@ const toSheetRow = (row: NewHutangRow) => [
   row.tanggalSelesai,
 ];
 
-export function HutangOperasional() {
+export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} }: HutangOperasionalProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -176,6 +182,8 @@ export function HutangOperasional() {
   const [showEmailPreview, setShowEmailPreview] = useState(true);
   const [showWhatsAppPreview, setShowWhatsAppPreview] = useState(true);
   const { addNotification } = useNotifications();
+  const canEditData = canModifyDatabase(currentUser?.role, 'hutang-operasional', 'edit', roleDatabasePermissionMap);
+  const canDeleteData = canModifyDatabase(currentUser?.role, 'hutang-operasional', 'delete', roleDatabasePermissionMap);
 
   const fetchData = async () => {
     const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
@@ -426,6 +434,10 @@ export function HutangOperasional() {
   };
 
   const handleEdit = (item: HutangRecord) => {
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk mengedit Hutang Operasional Lain');
+      return;
+    }
     setEditingRow(item.rowIndex);
     setEditData({ ...item });
   };
@@ -437,6 +449,10 @@ export function HutangOperasional() {
 
   const handleSave = async () => {
     if (!editData) return;
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk mengedit Hutang Operasional Lain');
+      return;
+    }
 
     const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
     if (!spreadsheetId) {
@@ -488,6 +504,10 @@ export function HutangOperasional() {
   };
 
   const handleBulkDelete = () => {
+    if (!canDeleteData) {
+      toast.error('Anda tidak memiliki akses untuk menghapus Hutang Operasional Lain');
+      return;
+    }
     if (selectedRows.length === 0) {
       toast.error('Pilih data yang akan dihapus terlebih dahulu');
       return;
@@ -499,6 +519,10 @@ export function HutangOperasional() {
   };
 
   const handleDeleteRow = (rowIndex: number) => {
+    if (!canDeleteData) {
+      toast.error('Anda tidak memiliki akses untuk menghapus Hutang Operasional Lain');
+      return;
+    }
     setIsBulkDelete(false);
     setRowToDelete(rowIndex);
     setIsConfirmOpen(true);
@@ -541,6 +565,10 @@ export function HutangOperasional() {
   };
 
   const openAddModal = () => {
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk menambah Hutang Operasional Lain');
+      return;
+    }
     setNewRows(Array.from({ length: 10 }, createBlankRow));
     setIsAddOpen(true);
   };
@@ -596,6 +624,10 @@ export function HutangOperasional() {
   };
 
   const handleAddSave = async () => {
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk menambah Hutang Operasional Lain');
+      return;
+    }
     const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
     if (!spreadsheetId) {
       toast.error('Spreadsheet ID belum dikonfigurasi');
@@ -794,13 +826,15 @@ export function HutangOperasional() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={openAddModal}
-                className="flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/10 transition-all hover:bg-blue-700"
-              >
-                <Plus className="h-4 w-4" />
-                Tambah Data
-              </button>
+              {canEditData && (
+                <button
+                  onClick={openAddModal}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/10 transition-all hover:bg-blue-700"
+                >
+                  <Plus className="h-4 w-4" />
+                  Tambah Data
+                </button>
+              )}
               <button
                 onClick={() => setIsBlastOpen(true)}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-amber-600"
@@ -842,7 +876,7 @@ export function HutangOperasional() {
                   </div>
                 )}
               </div>
-              {selectedRows.length > 0 && (
+              {selectedRows.length > 0 && canDeleteData && (
                 <button
                   onClick={handleBulkDelete}
                   className="flex cursor-pointer items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white shadow-md shadow-red-600/10 transition-all hover:bg-red-700"
@@ -943,9 +977,11 @@ export function HutangOperasional() {
             <thead className="sticky top-0 z-20">
               <tr className="border-b border-[#004237] bg-[#005245]">
                 <th className="w-12 border-r border-[#004237]/50 px-3 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-white">
-                  <button onClick={toggleSelectAll} className="rounded p-1 transition-colors hover:bg-white/10">
-                    {allPageRowsSelected ? <CheckSquare className="h-4 w-4 text-white" /> : <Square className="h-4 w-4 text-white" />}
-                  </button>
+                  {canDeleteData && (
+                    <button onClick={toggleSelectAll} className="rounded p-1 transition-colors hover:bg-white/10">
+                      {allPageRowsSelected ? <CheckSquare className="h-4 w-4 text-white" /> : <Square className="h-4 w-4 text-white" />}
+                    </button>
+                  )}
                 </th>
                 <th className="w-12 border-r border-[#004237]/50 px-3 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-white">No</th>
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">Tanggal</th>
@@ -978,9 +1014,11 @@ export function HutangOperasional() {
                       className={`group transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-emerald-50/40 ${isSelected ? 'bg-emerald-50' : ''}`}
                     >
                       <td className="border-r border-gray-50 px-3 py-0.5 text-center">
-                        <button onClick={() => toggleSelectRow(item.rowIndex)} className="rounded p-1 transition-colors hover:bg-gray-100">
-                          {isSelected ? <CheckSquare className="h-4 w-4 text-[#009B4F]" /> : <Square className="h-4 w-4 text-gray-300" />}
-                        </button>
+                        {canDeleteData && (
+                          <button onClick={() => toggleSelectRow(item.rowIndex)} className="rounded p-1 transition-colors hover:bg-gray-100">
+                            {isSelected ? <CheckSquare className="h-4 w-4 text-[#009B4F]" /> : <Square className="h-4 w-4 text-gray-300" />}
+                          </button>
+                        )}
                       </td>
                       <td className="border-r border-gray-50 px-3 py-0.5 text-center font-mono text-[11px] text-gray-400">{rowNumber}</td>
                       <td className="whitespace-nowrap border-r border-gray-50 px-4 py-0.5 text-[11px] font-semibold text-gray-600">
@@ -1086,20 +1124,24 @@ export function HutangOperasional() {
                           </div>
                         ) : (
                           <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => handleEdit(item)}
-                              className="rounded-lg bg-blue-50 p-1.5 text-blue-600 transition-colors hover:bg-blue-100"
-                              title="Edit Baris"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRow(item.rowIndex)}
-                              className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-50"
-                              title="Hapus Data"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            {canEditData && (
+                              <button
+                                onClick={() => handleEdit(item)}
+                                className="rounded-lg bg-blue-50 p-1.5 text-blue-600 transition-colors hover:bg-blue-100"
+                                title="Edit Baris"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {canDeleteData && (
+                              <button
+                                onClick={() => handleDeleteRow(item.rowIndex)}
+                                className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-50"
+                                title="Hapus Data"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>

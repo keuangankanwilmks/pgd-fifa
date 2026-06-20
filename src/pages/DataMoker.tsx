@@ -10,6 +10,7 @@ import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDrop
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { canModifyDatabase, type RoleDatabasePermissionMap } from '../constants/databasePermissions';
 
 interface MokerRecord {
   rowIndex?: number;
@@ -53,9 +54,10 @@ const selectStyles = {
 
 interface DataMokerProps {
   currentUser?: any;
+  roleDatabasePermissionMap?: RoleDatabasePermissionMap;
 }
 
-export function DataMoker({ currentUser }: DataMokerProps) {
+export function DataMoker({ currentUser, roleDatabasePermissionMap = {} }: DataMokerProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -75,7 +77,8 @@ export function DataMoker({ currentUser }: DataMokerProps) {
   const [rowToDelete, setRowToDelete] = useState<number | null>(null);
   const { addNotification } = useNotifications();
 
-  const isAdmin = currentUser?.role === 'admin';
+  const canEditData = canModifyDatabase(currentUser?.role, 'data-moker', 'edit', roleDatabasePermissionMap);
+  const canDeleteData = canModifyDatabase(currentUser?.role, 'data-moker', 'delete', roleDatabasePermissionMap);
 
   const bankOptions = [
     { value: 'BNI', label: 'BNI' },
@@ -169,6 +172,10 @@ export function DataMoker({ currentUser }: DataMokerProps) {
   }, [rawData, searchTerm, selectedCabang, selectedBank, startDate, endDate]);
 
   const handleEdit = (index: number, item: MokerRecord) => {
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk mengedit Data Moker');
+      return;
+    }
     setEditingIndex(index);
     setEditForm({ ...item });
   };
@@ -180,6 +187,10 @@ export function DataMoker({ currentUser }: DataMokerProps) {
 
   const handleSave = async (index: number) => {
     if (!editForm || !editForm.rowIndex) return;
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk mengedit Data Moker');
+      return;
+    }
 
     const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
     setIsLoading(true);
@@ -296,8 +307,8 @@ export function DataMoker({ currentUser }: DataMokerProps) {
   };
 
   const handleBulkDelete = () => {
-    if (!isAdmin) {
-      toast.error('Hanya admin yang dapat menghapus data');
+    if (!canDeleteData) {
+      toast.error('Anda tidak memiliki akses untuk menghapus Data Moker');
       return;
     }
     if (selectedRows.length === 0) {
@@ -311,8 +322,8 @@ export function DataMoker({ currentUser }: DataMokerProps) {
   };
 
   const handleDeleteRow = (rowIndex: number) => {
-    if (!isAdmin) {
-      toast.error('Hanya admin yang dapat menghapus data');
+    if (!canDeleteData) {
+      toast.error('Anda tidak memiliki akses untuk menghapus Data Moker');
       return;
     }
     setRowToDelete(rowIndex);
@@ -400,7 +411,7 @@ export function DataMoker({ currentUser }: DataMokerProps) {
                   </div>
                 )}
               </div>
-              {selectedRows.length > 0 && (
+              {selectedRows.length > 0 && canDeleteData && (
                 <button 
                   onClick={handleBulkDelete}
                   className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all shadow-md shadow-red-600/10 text-xs font-bold cursor-pointer"
@@ -492,13 +503,15 @@ export function DataMoker({ currentUser }: DataMokerProps) {
             <thead className="sticky top-0 z-20">
               <tr className="bg-[#005245] border-b border-[#004237]">
                 <th className="text-center py-1.5 px-3 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50 w-12">
-                  <button onClick={toggleSelectAll} className="p-1 hover:bg-white/10 rounded transition-colors">
-                    {selectedRows.length === paginatedData.length && paginatedData.length > 0 ? (
-                      <CheckSquare className="w-4 h-4 text-white" />
-                    ) : (
-                      <Square className="w-4 h-4 text-white" />
-                    )}
-                  </button>
+                  {canDeleteData && (
+                    <button onClick={toggleSelectAll} className="p-1 hover:bg-white/10 rounded transition-colors">
+                      {selectedRows.length === paginatedData.length && paginatedData.length > 0 ? (
+                        <CheckSquare className="w-4 h-4 text-white" />
+                      ) : (
+                        <Square className="w-4 h-4 text-white" />
+                      )}
+                    </button>
+                  )}
                 </th>
                 <th className="text-center py-1.5 px-3 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50 w-12">No</th>
                 <th className="text-left py-1.5 px-5 font-black text-white uppercase text-[9px] tracking-widest border-r border-[#004237]/50">Tanggal</th>
@@ -609,16 +622,18 @@ export function DataMoker({ currentUser }: DataMokerProps) {
                   return (
                     <tr key={`${item.tanggal}-${item.bank}-${item.cabang}-${i}`} className={`transition-colors group ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-emerald-50/40 ${selectedRows.includes(item.rowIndex!) ? 'bg-emerald-50' : ''}`}>
                       <td className="py-0.5 px-3 text-center border-r border-gray-50">
-                        <button 
-                          onClick={() => toggleSelectRow(item.rowIndex!)}
-                          className="p-1 hover:bg-gray-100 rounded transition-colors"
-                        >
-                          {selectedRows.includes(item.rowIndex!) ? (
-                            <CheckSquare className="w-4 h-4 text-[#009B4F]" />
-                          ) : (
-                            <Square className="w-4 h-4 text-gray-300" />
-                          )}
-                        </button>
+                        {canDeleteData && (
+                          <button 
+                            onClick={() => toggleSelectRow(item.rowIndex!)}
+                            className="p-1 hover:bg-gray-100 rounded transition-colors"
+                          >
+                            {selectedRows.includes(item.rowIndex!) ? (
+                              <CheckSquare className="w-4 h-4 text-[#009B4F]" />
+                            ) : (
+                              <Square className="w-4 h-4 text-gray-300" />
+                            )}
+                          </button>
+                        )}
                       </td>
                       <td className="py-0.5 px-3 text-center text-gray-400 font-mono text-[11px] border-r border-gray-50">{rowNumber}</td>
                       <td className="py-0.5 px-5 text-gray-600 font-semibold border-r border-gray-50 whitespace-nowrap">{item.tanggal}</td>
@@ -635,20 +650,24 @@ export function DataMoker({ currentUser }: DataMokerProps) {
                       </td>
                       <td className="py-0.5 px-5 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => handleEdit(i, item)}
-                            className="p-1 px-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                            title="Edit Data"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteRow(item.rowIndex!)}
-                            className="p-1 px-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                            title="Hapus Data"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canEditData && (
+                            <button
+                              onClick={() => handleEdit(i, item)}
+                              className="p-1 px-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                              title="Edit Data"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {canDeleteData && (
+                            <button
+                              onClick={() => handleDeleteRow(item.rowIndex!)}
+                              className="p-1 px-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus Data"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

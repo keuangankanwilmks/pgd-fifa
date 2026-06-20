@@ -19,6 +19,7 @@ export interface RoleAccessConfig {
   id: string;
   label: string;
   menuIds: string[];
+  databasePermissions?: any;
 }
 
 export type RoleAccessMap = Record<string, string[]>;
@@ -206,6 +207,7 @@ export const mergeRoleAccessConfigs = (configs: RoleAccessConfig[]) => {
       ...config,
       label: config.label || config.id,
       menuIds: Array.isArray(config.menuIds) ? config.menuIds : [],
+      databasePermissions: config.databasePermissions,
     });
   });
 

@@ -17,6 +17,15 @@ import {
   type RoleAccessConfig,
   type RoleAccessMap,
 } from '../constants/menuItems';
+import {
+  DATABASE_PERMISSION_TARGETS,
+  getFullDatabasePermissions,
+  normalizeDatabasePermissions,
+  type DatabasePermissionAction,
+  type DatabasePermissionMap,
+  type DatabasePermissionTargetId,
+  type RoleDatabasePermissionMap,
+} from '../constants/databasePermissions';
 
 interface UserManagementProps {
   users: User[];
@@ -25,11 +34,19 @@ interface UserManagementProps {
   setIsLoading: (loading: boolean) => void;
   setLoadingMessage: (msg: string) => void;
   roleAccessMap: RoleAccessMap;
+  roleDatabasePermissionMap: RoleDatabasePermissionMap;
 }
 
 const configsToDraft = (configs: RoleAccessConfig[]) => (
   configs.reduce<Record<string, string[]>>((acc, config) => {
     acc[config.id] = config.menuIds;
+    return acc;
+  }, {})
+);
+
+const configsToDatabasePermissionDraft = (configs: RoleAccessConfig[]) => (
+  configs.reduce<RoleDatabasePermissionMap>((acc, config) => {
+    acc[config.id] = normalizeDatabasePermissions(config.id, config.databasePermissions);
     return acc;
   }, {})
 );
@@ -44,6 +61,7 @@ export function UserManagement({
   setIsLoading,
   setLoadingMessage,
   roleAccessMap,
+  roleDatabasePermissionMap,
 }: UserManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -54,6 +72,7 @@ export function UserManagement({
   const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState('user');
   const [accessDraft, setAccessDraft] = useState<Record<string, string[]>>(() => configsToDraft(DEFAULT_ROLE_ACCESS_CONFIGS));
+  const [databasePermissionDraft, setDatabasePermissionDraft] = useState<RoleDatabasePermissionMap>(() => configsToDatabasePermissionDraft(DEFAULT_ROLE_ACCESS_CONFIGS));
   const [newRoleName, setNewRoleName] = useState('');
   const [isSavingAccess, setIsSavingAccess] = useState(false);
   const { addNotification } = useNotifications();
@@ -74,11 +93,13 @@ export function UserManagement({
           id: item.id,
           label: String(data.label || item.id),
           menuIds: Array.isArray(data.menuIds) ? data.menuIds : [],
+          databasePermissions: data.databasePermissions && typeof data.databasePermissions === 'object' ? data.databasePermissions : undefined,
         };
       });
       const mergedConfigs = mergeRoleAccessConfigs(storedConfigs);
       setRoleConfigs(mergedConfigs);
       setAccessDraft(configsToDraft(mergedConfigs));
+      setDatabasePermissionDraft(configsToDatabasePermissionDraft(mergedConfigs));
     }, (error) => {
       console.error('Role access listener error:', error);
     });
@@ -95,6 +116,10 @@ export function UserManagement({
   const allMenuOptions = useMemo(() => getAllLeafMenuItems(), []);
   const selectedRoleConfig = roleConfigs.find(config => config.id === selectedRoleId) || roleConfigs[0];
   const selectedMenuIds = accessDraft[selectedRoleId] || roleAccessMap[selectedRoleId] || selectedRoleConfig?.menuIds || [];
+  const selectedDatabasePermissions = normalizeDatabasePermissions(
+    selectedRoleId,
+    databasePermissionDraft[selectedRoleId] || roleDatabasePermissionMap[selectedRoleId] || selectedRoleConfig?.databasePermissions,
+  );
   const isSelectedRoleAdmin = selectedRoleId === 'admin';
 
   const filteredUsers = users.filter(u =>
@@ -254,6 +279,21 @@ export function UserManagement({
     });
   };
 
+  const toggleDatabasePermission = (targetId: DatabasePermissionTargetId, action: DatabasePermissionAction) => {
+    if (isSelectedRoleAdmin) return;
+    setDatabasePermissionDraft(prev => {
+      const current = normalizeDatabasePermissions(selectedRoleId, prev[selectedRoleId]);
+      const next: DatabasePermissionMap = {
+        ...current,
+        [targetId]: {
+          ...current[targetId],
+          [action]: !current[targetId][action],
+        },
+      };
+      return { ...prev, [selectedRoleId]: next };
+    });
+  };
+
   const handleAddRole = async () => {
     const label = newRoleName.trim();
     const id = sanitizeRoleId(label);
@@ -269,12 +309,15 @@ export function UserManagement({
 
     setIsSavingAccess(true);
     try {
-      const newConfig = { id, label, menuIds: ['dashboard'] };
+      const databasePermissions = normalizeDatabasePermissions(id);
+      const newConfig = { id, label, menuIds: ['dashboard'], databasePermissions };
       setRoleConfigs(prev => mergeRoleAccessConfigs([...prev, newConfig]));
       setAccessDraft(prev => ({ ...prev, [id]: ['dashboard'] }));
+      setDatabasePermissionDraft(prev => ({ ...prev, [id]: databasePermissions }));
       await setDoc(doc(db, 'role_access', id), {
         label,
         menuIds: ['dashboard'],
+        databasePermissions,
         createdAt: new Date().toISOString(),
       }, { merge: true });
       setSelectedRoleId(id);
@@ -294,12 +337,16 @@ export function UserManagement({
     const menuIds = isSelectedRoleAdmin
       ? allMenuOptions.map(item => item.id)
       : selectedMenuIds;
+    const databasePermissions = isSelectedRoleAdmin
+      ? getFullDatabasePermissions()
+      : selectedDatabasePermissions;
 
     setIsSavingAccess(true);
     try {
       await setDoc(doc(db, 'role_access', selectedRoleId), {
         label: selectedRoleConfig.label,
         menuIds,
+        databasePermissions,
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       toast.success('Akses user berhasil disimpan');
@@ -502,7 +549,9 @@ export function UserManagement({
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-auto p-4">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="mb-6">
+                    <h4 className="mb-2 text-xs font-black uppercase tracking-widest text-gray-500">Akses Sub Menu</h4>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     {allMenuOptions.map(menu => {
                       const checked = isSelectedRoleAdmin || selectedMenuIds.includes(menu.id);
                       return (
@@ -528,6 +577,51 @@ export function UserManagement({
                         </label>
                       );
                     })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-3 flex flex-col justify-between gap-1 sm:flex-row sm:items-end">
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-widest text-gray-500">Akses Edit / Hapus Database</h4>
+                        <p className="mt-1 text-[11px] text-gray-400">Atur hak role untuk mengubah atau menghapus data operasional.</p>
+                      </div>
+                    </div>
+                    <div className="overflow-hidden rounded-xl border border-gray-100 bg-white">
+                      <table className="w-full min-w-[620px] text-xs">
+                        <thead className="bg-[#005245] text-white">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-black uppercase tracking-widest">Database</th>
+                            <th className="w-28 px-4 py-3 text-center font-black uppercase tracking-widest">Edit</th>
+                            <th className="w-28 px-4 py-3 text-center font-black uppercase tracking-widest">Hapus</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {DATABASE_PERMISSION_TARGETS.map(target => (
+                            <tr key={target.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <div className="font-bold text-gray-800">{target.label}</div>
+                                <div className="mt-0.5 text-[11px] text-gray-400">{target.description}</div>
+                              </td>
+                              {(['edit', 'delete'] as DatabasePermissionAction[]).map(action => {
+                                const checked = isSelectedRoleAdmin || Boolean(selectedDatabasePermissions[target.id]?.[action]);
+                                return (
+                                  <td key={action} className="px-4 py-3 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      disabled={isSelectedRoleAdmin}
+                                      onChange={() => toggleDatabasePermission(target.id, action)}
+                                      className="h-4 w-4 rounded border-gray-300 text-[#009B4F] focus:ring-[#009B4F] disabled:cursor-not-allowed"
+                                    />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               </div>

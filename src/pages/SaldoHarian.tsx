@@ -7,6 +7,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { googleSheetsService } from '../services/googleSheetsService';
 import { PageSizeDropdown, type PageSizeValue } from '../components/PageSizeDropdown';
+import { canModifyDatabase, type RoleDatabasePermissionMap } from '../constants/databasePermissions';
 
 interface SaldoHarianRecord {
   rowIndex: number;
@@ -54,7 +55,12 @@ const parseAmount = (value: any) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-export function SaldoHarian() {
+interface SaldoHarianProps {
+  currentUser?: any;
+  roleDatabasePermissionMap?: RoleDatabasePermissionMap;
+}
+
+export function SaldoHarian({ currentUser, roleDatabasePermissionMap = {} }: SaldoHarianProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -67,6 +73,7 @@ export function SaldoHarian() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState<PageSizeValue>(25);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const canEditData = canModifyDatabase(currentUser?.role, 'saldo-harian', 'edit', roleDatabasePermissionMap);
 
   const pageSizeOptions: { value: PageSizeValue; label: string }[] = [
     { value: 25, label: '25' },
@@ -181,6 +188,10 @@ export function SaldoHarian() {
   };
 
   const handleEdit = (index: number, item: SaldoHarianRecord) => {
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk mengedit Saldo Harian');
+      return;
+    }
     setEditingIndex(index);
     setEditForm({ ...item });
   };
@@ -202,6 +213,10 @@ export function SaldoHarian() {
 
   const handleSave = async () => {
     if (!editForm) return;
+    if (!canEditData) {
+      toast.error('Anda tidak memiliki akses untuk mengedit Saldo Harian');
+      return;
+    }
     const spreadsheetId = import.meta.env.VITE_REKON_SPREADSHEET_ID;
     setIsLoading(true);
     try {
@@ -408,9 +423,11 @@ export function SaldoHarian() {
                           </button>
                         </div>
                       ) : (
-                        <button onClick={() => handleEdit(index, item)} className="rounded-lg px-2 py-1 text-emerald-600 transition-colors hover:bg-emerald-50" title="Edit Data">
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </button>
+                        canEditData ? (
+                          <button onClick={() => handleEdit(index, item)} className="rounded-lg px-2 py-1 text-emerald-600 transition-colors hover:bg-emerald-50" title="Edit Data">
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null
                       )}
                     </td>
                   </tr>

@@ -29,6 +29,7 @@ import { cabangService } from './services/cabangService';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { getPathFromTab, getTabFromPath } from './constants/routeConfig';
 import { isMenuAllowed, normalizeRoleId, type RoleAccessMap } from './constants/menuItems';
+import { type RoleDatabasePermissionMap } from './constants/databasePermissions';
 
 export interface User {
   nik: string;
@@ -52,6 +53,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Menginisialisasi aplikasi...');
   const [roleAccessMap, setRoleAccessMap] = useState<RoleAccessMap>({});
+  const [roleDatabasePermissionMap, setRoleDatabasePermissionMap] = useState<RoleDatabasePermissionMap>({});
   const [isRoleAccessLoaded, setIsRoleAccessLoaded] = useState(false);
   const [rekonInitialData, setRekonInitialData] = useState<{
     bank: string;
@@ -137,6 +139,7 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) {
       setRoleAccessMap({});
+      setRoleDatabasePermissionMap({});
       setIsRoleAccessLoaded(false);
       return;
     }
@@ -144,29 +147,35 @@ export default function App() {
     const normalizedRole = normalizeRoleId(currentUser.role);
     if (normalizedRole === 'admin') {
       setRoleAccessMap({});
+      setRoleDatabasePermissionMap({});
       setIsRoleAccessLoaded(true);
       return;
     }
 
     setIsRoleAccessLoaded(false);
     setRoleAccessMap({});
-    const unsubscribe = onSnapshot(collection(db, 'role_access'), (snapshot) => {
-      const nextMap = snapshot.docs.reduce<RoleAccessMap>((acc, item) => {
-        const data = item.data();
-        acc[item.id] = Array.isArray(data.menuIds) ? data.menuIds : [];
-        acc[normalizeRoleId(item.id)] = Array.isArray(data.menuIds) ? data.menuIds : [];
-        return acc;
-      }, {});
-
-      if (!nextMap[normalizedRole]) {
-        nextMap[normalizedRole] = ['dashboard'];
+    setRoleDatabasePermissionMap({});
+    const unsubscribe = onSnapshot(doc(db, 'role_access', normalizedRole), (snapshot) => {
+      if (!snapshot.exists()) {
+        setRoleAccessMap({ [normalizedRole]: ['dashboard'] });
+        setRoleDatabasePermissionMap({});
+        setIsRoleAccessLoaded(true);
+        return;
       }
 
-      setRoleAccessMap(nextMap);
+      const data = snapshot.data();
+      const menuIds = Array.isArray(data.menuIds) ? data.menuIds : ['dashboard'];
+      const databasePermissions = data.databasePermissions && typeof data.databasePermissions === 'object'
+        ? data.databasePermissions
+        : {};
+
+      setRoleAccessMap({ [normalizedRole]: menuIds });
+      setRoleDatabasePermissionMap({ [normalizedRole]: databasePermissions });
       setIsRoleAccessLoaded(true);
     }, (error) => {
       console.error('Role access listener error:', error);
       setRoleAccessMap({ [normalizedRole]: ['dashboard'] });
+      setRoleDatabasePermissionMap({});
       setIsRoleAccessLoaded(true);
     });
 
@@ -323,7 +332,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Dashboard onAppClick={(id) => handleTabChange(`support-${id}`)} />} />
               <Route path="/modal-kerja/proses-moker" element={guardRoute('proses-moker', <ProsesMoker />)} />
-              <Route path="/modal-kerja/data-moker" element={guardRoute('data-moker', <DataMoker currentUser={currentUser} />)} />
+              <Route path="/modal-kerja/data-moker" element={guardRoute('data-moker', <DataMoker currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/rekonsiliasi-bank/bni/proses-rekon" element={guardRoute('rekon-bni',
                 <RekonBNI 
                   bank="BNI"
@@ -333,7 +342,7 @@ export default function App() {
                   setLoadingMessage={setLoadingMessage} 
                 />
               )} />
-              <Route path="/rekonsiliasi-bank/bni/data-rekon" element={guardRoute('data-rekon-bni', <DataRekon bank="BNI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />)} />
+              <Route path="/rekonsiliasi-bank/bni/data-rekon" element={guardRoute('data-rekon-bni', <DataRekon bank="BNI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/rekonsiliasi-bank/bri/proses-rekon" element={guardRoute('rekon-bri',
                 <RekonBNI 
                   bank="BRI" 
@@ -343,7 +352,7 @@ export default function App() {
                   setLoadingMessage={setLoadingMessage} 
                 />
               )} />
-              <Route path="/rekonsiliasi-bank/bri/data-rekon" element={guardRoute('data-rekon-bri', <DataRekon bank="BRI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />)} />
+              <Route path="/rekonsiliasi-bank/bri/data-rekon" element={guardRoute('data-rekon-bri', <DataRekon bank="BRI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/rekonsiliasi-bank/bsi/proses-rekon" element={guardRoute('rekon-bsi',
                 <RekonBNI 
                   bank="BSI" 
@@ -353,10 +362,10 @@ export default function App() {
                   setLoadingMessage={setLoadingMessage} 
                 />
               )} />
-              <Route path="/rekonsiliasi-bank/bsi/data-rekon" element={guardRoute('data-rekon-bsi', <DataRekon bank="BSI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} />)} />
-              <Route path="/rekonsiliasi-bank/saldo-harian" element={guardRoute('saldo-harian', <SaldoHarian />)} />
+              <Route path="/rekonsiliasi-bank/bsi/data-rekon" element={guardRoute('data-rekon-bsi', <DataRekon bank="BSI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
+              <Route path="/rekonsiliasi-bank/saldo-harian" element={guardRoute('saldo-harian', <SaldoHarian currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/report" element={guardRoute('report', <Report currentUser={currentUser} />)} />
-              <Route path="/hutang-operasional" element={guardRoute('hutang', <HutangOperasional />)} />
+              <Route path="/hutang-operasional" element={guardRoute('hutang', <HutangOperasional currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/supporting-app/:id" element={<SupportingAppView tabId={activeTab} />} />
               <Route path="/settings/supporting-apps" element={guardRoute('setting-supporting-apps', <Settings type="supporting-apps" />)} />
               <Route path="/settings/manajemen-data" element={guardRoute('setting-general', <Settings type="general" />)} />
@@ -371,6 +380,7 @@ export default function App() {
                   setIsLoading={setIsLoading}
                   setLoadingMessage={setLoadingMessage}
                   roleAccessMap={roleAccessMap}
+                  roleDatabasePermissionMap={roleDatabasePermissionMap}
                 />
               )} />
               

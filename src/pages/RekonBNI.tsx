@@ -1712,13 +1712,6 @@ export function RekonBNI({
       ))),
     ]);
     worksheet['!cols'] = headers.map((header: string) => ({ wch: Math.max(14, header.length + 2) }));
-    downloadDropPollRows.forEach((_, rowIndex) => {
-      const cellAddress = XLSX.utils.encode_cell({ r: rowIndex + 1, c: amountColumnIndex });
-      if (worksheet[cellAddress]) {
-        worksheet[cellAddress].t = 'n';
-        worksheet[cellAddress].z = '#,##0';
-      }
-    });
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Drop Poll');

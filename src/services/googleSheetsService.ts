@@ -1,8 +1,7 @@
 /**
  * Google Sheets Service
- * Hybrid access:
- * - Read/load data directly from the public Google Sheets API with VITE_GOOGLE_API_KEY.
- * - Write/update/delete data through the Vercel API Route with a server-side service account.
+ * All read and write operations go through the server-side proxy so the
+ * spreadsheet can remain private and only be shared with the service account.
  */
 
 export interface GoogleSheetConfig {
@@ -42,7 +41,6 @@ interface SheetsProxyPayload {
 export class GoogleSheetsService {
   private proxyUrl = import.meta.env.VITE_SHEETS_PROXY_URL || '/api/sheets-proxy';
   private proxySecret = import.meta.env.VITE_SHEETS_PROXY_SECRET || '';
-  private apiBaseUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
 
   hasToken(): boolean {
     return true;
@@ -74,25 +72,6 @@ export class GoogleSheetsService {
     return data;
   }
 
-  private getPublicApiKey(): string {
-    const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error('VITE_GOOGLE_API_KEY belum dikonfigurasi di environment frontend');
-    }
-    return apiKey;
-  }
-
-  private async readPublicJson(url: string, fallbackMessage: string) {
-    const response = await fetch(url);
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      throw new Error(data?.error?.message || fallbackMessage);
-    }
-
-    return data;
-  }
-
   async appendData(spreadsheetId: string, range: string, values: any[][]) {
     return this.call({ operation: 'appendData', spreadsheetId, range, values });
   }
@@ -103,13 +82,12 @@ export class GoogleSheetsService {
     valueRenderOption: ValueRenderOption = 'FORMATTED_VALUE',
     _forceAuthorize = false,
   ) {
-    const apiKey = this.getPublicApiKey();
-    const params = new URLSearchParams({
-      key: apiKey,
+    const data = await this.call({
+      operation: 'readData',
+      spreadsheetId,
+      range,
       valueRenderOption,
     });
-    const url = `${this.apiBaseUrl}/${spreadsheetId}/values/${encodeURIComponent(range)}?${params.toString()}`;
-    const data = await this.readPublicJson(url, `Gagal membaca data Google Sheet range ${range}`);
     return data.values || [];
   }
 
@@ -118,15 +96,8 @@ export class GoogleSheetsService {
   }
 
   async getSheetIdByName(spreadsheetId: string, sheetName: string): Promise<number | null> {
-    const apiKey = this.getPublicApiKey();
-    const params = new URLSearchParams({
-      key: apiKey,
-      fields: 'sheets.properties',
-    });
-    const url = `${this.apiBaseUrl}/${spreadsheetId}?${params.toString()}`;
-    const data = await this.readPublicJson(url, `Gagal membaca metadata Google Sheet ${sheetName}`);
-    const sheet = data.sheets?.find((item: any) => item.properties?.title === sheetName);
-    return typeof sheet?.properties?.sheetId === 'number' ? sheet.properties.sheetId : null;
+    const data = await this.call({ operation: 'getSheetIdByName', spreadsheetId, sheetName });
+    return typeof data.sheetId === 'number' ? data.sheetId : null;
   }
 
   async ensureSheet(spreadsheetId: string, sheetName: string): Promise<number> {

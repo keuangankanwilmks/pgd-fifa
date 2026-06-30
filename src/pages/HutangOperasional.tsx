@@ -48,6 +48,7 @@ interface HutangRecord {
   keterangan: string;
   status: string;
   tanggalSelesai: string;
+  documentNumber: string;
 }
 
 interface NewHutangRow {
@@ -58,6 +59,7 @@ interface NewHutangRow {
   keterangan: string;
   status: string;
   tanggalSelesai: string;
+  documentNumber: string;
 }
 
 interface BlastEmailGroup {
@@ -86,7 +88,7 @@ const defaultStatusOptions = [
   { value: 'HOLD', label: 'HOLD' },
   { value: 'SELESAI', label: 'SELESAI' },
 ];
-const addRowFields: (keyof NewHutangRow)[] = ['tanggal', 'akunDb', 'akunCr', 'nominal', 'keterangan', 'status', 'tanggalSelesai'];
+const addRowFields: (keyof NewHutangRow)[] = ['tanggal', 'akunDb', 'akunCr', 'nominal', 'keterangan', 'status', 'tanggalSelesai', 'documentNumber'];
 
 const createBlankRow = (): NewHutangRow => ({
   tanggal: '',
@@ -96,6 +98,7 @@ const createBlankRow = (): NewHutangRow => ({
   keterangan: '',
   status: 'BELUM',
   tanggalSelesai: '',
+  documentNumber: '',
 });
 
 const parseCurrencyValue = (value: unknown) => {
@@ -140,6 +143,7 @@ const toSheetRow = (row: NewHutangRow) => [
   row.keterangan,
   normalizeStatus(row.status),
   row.tanggalSelesai,
+  row.documentNumber,
 ];
 
 export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} }: HutangOperasionalProps) {
@@ -149,6 +153,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
   const [selectedUnitKerja, setSelectedUnitKerja] = useState<any>(null);
   const [selectedBank, setSelectedBank] = useState<any>(null);
   const [selectedStatus, setSelectedStatus] = useState<any>(null);
+  const [documentNumberFilter, setDocumentNumberFilter] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [rawData, setRawData] = useState<HutangRecord[]>([]);
   const [unitKerjaOptions, setUnitKerjaOptions] = useState<any[]>([]);
@@ -194,7 +199,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
 
     setIsLoading(true);
     try {
-      const values = await googleSheetsService.readData(spreadsheetId, `${sheetName}!A2:G`);
+      const values = await googleSheetsService.readData(spreadsheetId, `${sheetName}!A2:H`);
       const mapped: HutangRecord[] = (values || []).map((v: any, index: number) => ({
         rowIndex: index + 2,
         tanggal: v[0] || '',
@@ -204,6 +209,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
         keterangan: v[4] || '',
         status: normalizeStatus(v[5] || 'BELUM'),
         tanggalSelesai: v[6] || '',
+        documentNumber: String(v[7] ?? ''),
       }));
 
       setRawData(mapped);
@@ -249,6 +255,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
       const matchUnitKerja = !selectedUnitKerja || item.akunCr === selectedUnitKerja.value;
       const matchBank = !selectedBank || item.akunDb === selectedBank.value;
       const matchStatus = !selectedStatus || normalizeStatus(item.status) === selectedStatus.value;
+      const matchDocumentNumber = String(item.documentNumber).toLowerCase().includes(documentNumberFilter.trim().toLowerCase());
 
       let matchDate = true;
       if (startDate || endDate) {
@@ -257,13 +264,13 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
         if (endDate && itemDate > new Date(endDate)) matchDate = false;
       }
 
-      return matchSearch && matchUnitKerja && matchBank && matchStatus && matchDate;
+      return matchSearch && matchUnitKerja && matchBank && matchStatus && matchDocumentNumber && matchDate;
     });
-  }, [rawData, searchTerm, selectedUnitKerja, selectedBank, selectedStatus, startDate, endDate]);
+  }, [rawData, searchTerm, selectedUnitKerja, selectedBank, selectedStatus, documentNumberFilter, startDate, endDate]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedUnitKerja, selectedBank, selectedStatus, startDate, endDate, itemsPerPage]);
+  }, [searchTerm, selectedUnitKerja, selectedBank, selectedStatus, documentNumberFilter, startDate, endDate, itemsPerPage]);
 
   useEffect(() => {
     const visibleRows = new Set(filteredData.map(item => item.rowIndex));
@@ -391,6 +398,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
     setSelectedUnitKerja(null);
     setSelectedBank(null);
     setSelectedStatus(null);
+    setDocumentNumberFilter('');
     setSelectedRows([]);
     setCurrentPage(1);
     toast.success('Filter telah direset');
@@ -405,6 +413,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
       Keterangan: item.keterangan,
       Status: item.status,
       'Tanggal Selesai': item.tanggalSelesai,
+      'Document Number': item.documentNumber,
     })));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Hutang Operasional');
@@ -417,7 +426,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
     doc.text('Data Hutang Operasional Lain', 14, 15);
     autoTable(doc, {
       startY: 20,
-      head: [['Tanggal', 'AKUN (Db)', 'AKUN (Cr)', 'Nominal', 'Keterangan', 'Status', 'Tanggal Selesai']],
+      head: [['Tanggal', 'AKUN (Db)', 'AKUN (Cr)', 'Nominal', 'Keterangan', 'Status', 'Tanggal Selesai', 'Document Number']],
       body: filteredData.map(item => [
         item.tanggal,
         item.akunDb,
@@ -426,6 +435,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
         item.keterangan,
         item.status,
         item.tanggalSelesai || '-',
+        item.documentNumber || '-',
       ]),
       styles: { fontSize: 8 },
     });
@@ -462,7 +472,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
 
     setIsSaving(true);
     try {
-      await googleSheetsService.updateData(spreadsheetId, `${sheetName}!A${editData.rowIndex}:G${editData.rowIndex}`, [[
+      await googleSheetsService.updateData(spreadsheetId, `${sheetName}!A${editData.rowIndex}:H${editData.rowIndex}`, [[
         editData.tanggal,
         editData.akunDb,
         editData.akunCr,
@@ -470,6 +480,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
         editData.keterangan,
         normalizeStatus(editData.status),
         editData.tanggalSelesai,
+        editData.documentNumber,
       ]]);
 
       setRawData(prev => prev.map(item => item.rowIndex === editData.rowIndex ? { ...editData, status: normalizeStatus(editData.status) } : item));
@@ -600,7 +611,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
       }
 
       rows.forEach((columns, rowOffset) => {
-        const hasNoColumn = field === 'tanggal' && columns.length >= 8 && /^\d+$/.test((columns[0] || '').trim());
+        const hasNoColumn = field === 'tanggal' && columns.length >= 9 && /^\d+$/.test((columns[0] || '').trim());
         const cells = hasNoColumn ? columns.slice(1) : columns;
 
         cells.forEach((cell, columnOffset) => {
@@ -640,7 +651,8 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
       row.akunCr.trim() ||
       row.nominal.trim() ||
       row.keterangan.trim() ||
-      row.tanggalSelesai.trim()
+      row.tanggalSelesai.trim() ||
+      row.documentNumber.trim()
     ));
 
     if (filledRows.length === 0) {
@@ -893,7 +905,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
               <Search className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Cari keterangan, AKUN (Db), atau AKUN (Cr)..."
+                placeholder="Cari keterangan, Bank (Db), atau Unit Kerja (Cr)..."
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 className="h-[36px] w-full rounded-lg border border-gray-200 py-2 pl-10 pr-4 text-xs outline-none transition-all focus:border-[#009B4F] focus:ring-2 focus:ring-[#009B4F]/20"
@@ -918,12 +930,12 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Select
               options={unitKerjaOptions}
               value={selectedUnitKerja}
               onChange={setSelectedUnitKerja}
-              placeholder="Filter AKUN (Cr)..."
+              placeholder="Filter Unit Kerja (Cr)..."
               isClearable
               isSearchable
               className="text-xs"
@@ -935,7 +947,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
               options={bankOptions}
               value={selectedBank}
               onChange={setSelectedBank}
-              placeholder="Filter AKUN (Db)..."
+              placeholder="Filter Bank (Db)..."
               isClearable
               isSearchable
               className="text-xs"
@@ -956,6 +968,13 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
               menuPosition="fixed"
             />
             <input
+              type="text"
+              value={documentNumberFilter}
+              onChange={(event) => setDocumentNumberFilter(event.target.value)}
+              placeholder="Filter Document Number..."
+              className="h-[36px] w-full rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none transition-all focus:border-[#009B4F] focus:ring-2 focus:ring-[#009B4F]/20"
+            />
+            <input
               type="date"
               value={startDate}
               onChange={(event) => setStartDate(event.target.value)}
@@ -973,7 +992,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto bg-gray-50/30">
-          <table className="w-full min-w-[1200px] border-collapse text-[12px]">
+          <table className="w-full min-w-[1400px] border-collapse text-[12px]">
             <thead className="sticky top-0 z-20">
               <tr className="border-b border-[#004237] bg-[#005245]">
                 <th className="w-12 border-r border-[#004237]/50 px-3 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-white">
@@ -991,13 +1010,14 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">Keterangan</th>
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-white">Status</th>
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">Tanggal Selesai</th>
+                <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">Document Number</th>
                 <th className="px-4 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-white">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
               {isLoading ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-12 text-center">
+                  <td colSpan={11} className="px-6 py-12 text-center">
                     <div className="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-4 border-[#009B4F]/20 border-t-[#009B4F]" />
                     <p className="text-xs font-medium text-gray-400">Memuat data...</p>
                   </td>
@@ -1102,6 +1122,15 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                           />
                         ) : (item.tanggalSelesai || '-')}
                       </td>
+                      <td className="whitespace-nowrap border-r border-gray-50 px-4 py-0.5 text-[11px] font-medium text-gray-700">
+                        {isEditing ? (
+                          <input
+                            value={editData?.documentNumber || ''}
+                            onChange={(event) => setEditData(prev => prev ? { ...prev, documentNumber: event.target.value } : null)}
+                            className="h-7 w-full rounded border border-gray-200 px-2 text-[11px] outline-none focus:border-[#009B4F]"
+                          />
+                        ) : (item.documentNumber || '-')}
+                      </td>
                       <td className="px-4 py-0.5 text-center">
                         {isEditing ? (
                           <div className="flex items-center justify-center gap-1">
@@ -1150,7 +1179,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                 })
               ) : (
                 <tr>
-                  <td colSpan={10} className="py-20 text-center">
+                  <td colSpan={11} className="py-20 text-center">
                     <div className="flex flex-col items-center gap-2 text-gray-400">
                       <Search className="h-8 w-8 opacity-20" />
                       <p className="text-sm italic">Tidak ada data ditemukan</p>
@@ -1214,7 +1243,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto bg-gray-50/50 p-4">
-              <table className="w-full min-w-[1100px] border-collapse bg-white text-[12px]">
+              <table className="w-full min-w-[1300px] border-collapse bg-white text-[12px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-[#005245]">
                     <th className="w-12 border border-[#004237] px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">No</th>
@@ -1225,6 +1254,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                     <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Keterangan</th>
                     <th className="border border-[#004237] px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">Status</th>
                     <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Tanggal Selesai</th>
+                    <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Document Number</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1291,6 +1321,14 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                           value={row.tanggalSelesai}
                           onChange={(event) => updateNewRow(index, 'tanggalSelesai', event.target.value)}
                           onPaste={(event) => handleAddPaste(event, index, 'tanggalSelesai')}
+                          className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
+                        />
+                      </td>
+                      <td className="border border-gray-200 p-0">
+                        <input
+                          value={row.documentNumber}
+                          onChange={(event) => updateNewRow(index, 'documentNumber', event.target.value)}
+                          onPaste={(event) => handleAddPaste(event, index, 'documentNumber')}
                           className="h-8 w-full border-0 px-2 text-[11px] outline-none focus:bg-emerald-50"
                         />
                       </td>

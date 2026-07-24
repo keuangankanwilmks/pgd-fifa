@@ -1,6 +1,6 @@
 import { normalizeRoleId } from './menuItems';
 
-export type DatabasePermissionTargetId = 'data-moker' | 'data-rekon' | 'saldo-harian' | 'hutang-operasional';
+export type DatabasePermissionTargetId = 'data-moker' | 'data-rekon' | 'saldo-harian' | 'hutang-operasional' | 'anggaran';
 export type DatabasePermissionAction = 'edit' | 'delete';
 
 export interface DatabasePermissionTarget {
@@ -33,6 +33,11 @@ export const DATABASE_PERMISSION_TARGETS: DatabasePermissionTarget[] = [
     label: 'Hutang Operasional Lain',
     description: 'Database Hutang Operasional Lain.',
   },
+  {
+    id: 'anggaran',
+    label: 'Data Alokasi Anggaran',
+    description: 'Database alokasi anggaran per tahun dan cabang.',
+  },
 ];
 
 const emptyPermissions = (): DatabasePermissionMap => ({
@@ -40,6 +45,7 @@ const emptyPermissions = (): DatabasePermissionMap => ({
   'data-rekon': { edit: false, delete: false },
   'saldo-harian': { edit: false, delete: false },
   'hutang-operasional': { edit: false, delete: false },
+  'anggaran': { edit: false, delete: false },
 });
 
 export const getFullDatabasePermissions = (): DatabasePermissionMap => ({
@@ -47,6 +53,7 @@ export const getFullDatabasePermissions = (): DatabasePermissionMap => ({
   'data-rekon': { edit: true, delete: true },
   'saldo-harian': { edit: true, delete: true },
   'hutang-operasional': { edit: true, delete: true },
+  'anggaran': { edit: true, delete: true },
 });
 
 export const getDefaultDatabasePermissionsForRole = (role: string): DatabasePermissionMap => {
@@ -59,6 +66,7 @@ export const getDefaultDatabasePermissionsForRole = (role: string): DatabasePerm
     'data-rekon': { edit: false, delete: false },
     'saldo-harian': { edit: true, delete: false },
     'hutang-operasional': { edit: true, delete: true },
+    'anggaran': { edit: false, delete: false },
   };
 };
 

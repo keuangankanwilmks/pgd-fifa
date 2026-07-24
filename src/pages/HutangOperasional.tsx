@@ -407,8 +407,8 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
   const exportToExcel = () => {
     const worksheet = XLSX.utils.json_to_sheet(filteredData.map(item => ({
       Tanggal: item.tanggal,
-      'AKUN (Db)': item.akunDb,
-      'AKUN (Cr)': item.akunCr,
+      'BANK (Db)': item.akunDb,
+      'UNIT KERJA (Cr)': item.akunCr,
       Nominal: item.nominal,
       Keterangan: item.keterangan,
       Status: item.status,
@@ -426,7 +426,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
     doc.text('Data Hutang Operasional Lain', 14, 15);
     autoTable(doc, {
       startY: 20,
-      head: [['Tanggal', 'AKUN (Db)', 'AKUN (Cr)', 'Nominal', 'Keterangan', 'Status', 'Tanggal Selesai', 'Document Number']],
+      head: [['Tanggal', 'BANK (Db)', 'UNIT KERJA (Cr)', 'Nominal', 'Keterangan', 'Status', 'Tanggal Selesai', 'Document Number']],
       body: filteredData.map(item => [
         item.tanggal,
         item.akunDb,
@@ -668,7 +668,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
 
     const invalidCabangIndex = filledRows.findIndex(row => isInvalidCabangInput(row.akunCr));
     if (invalidCabangIndex !== -1) {
-      toast.error(`AKUN (Cr) pada baris ${invalidCabangIndex + 1} tidak sesuai master cabang`);
+      toast.error(`UNIT KERJA (Cr) pada baris ${invalidCabangIndex + 1} tidak sesuai master cabang`);
       return;
     }
 
@@ -713,7 +713,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
     .replaceAll('{{detailRows}}', buildEmailDetailRows(group));
 
   const buildWhatsAppDetailRows = (group: BlastEmailGroup) => group.rows.map((item, index) => (
-    `${index + 1}. AKUN (Db): ${item.akunDb || '-'}\n` +
+    `${index + 1}. BANK (Db): ${item.akunDb || '-'}\n` +
     `   Nominal: ${formatCurrency(item.nominal)}\n` +
     `   Keterangan: ${item.keterangan || '-'}\n` +
     `   Status: ${item.status || '-'}`
@@ -755,7 +755,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
 
   const buildEmailPlainBody = (group: BlastEmailGroup) => {
     const details = group.rows.map((item, index) => (
-      `${index + 1}. AKUN (Db): ${item.akunDb}\n` +
+      `${index + 1}. BANK (Db): ${item.akunDb}\n` +
       `   Nominal: ${formatCurrency(item.nominal)}\n` +
       `   Keterangan: ${item.keterangan || '-'}\n` +
       `   Status: ${item.status || '-'}`
@@ -1004,8 +1004,8 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                 </th>
                 <th className="w-12 border-r border-[#004237]/50 px-3 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-white">No</th>
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">Tanggal</th>
-                <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">AKUN (Db)</th>
-                <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">AKUN (Cr)</th>
+                <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">BANK (Db)</th>
+                <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">UNIT KERJA (Cr)</th>
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-right text-[9px] font-black uppercase tracking-widest text-white">Nominal</th>
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-white">Keterangan</th>
                 <th className="border-r border-[#004237]/50 px-4 py-1.5 text-center text-[9px] font-black uppercase tracking-widest text-white">Status</th>
@@ -1248,8 +1248,8 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                   <tr className="bg-[#005245]">
                     <th className="w-12 border border-[#004237] px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">No</th>
                     <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Tanggal</th>
-                    <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">AKUN (Db)</th>
-                    <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">AKUN (Cr)</th>
+                    <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">BANK (Db)</th>
+                    <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">UNIT KERJA (Cr)</th>
                     <th className="border border-[#004237] px-3 py-2 text-right text-[10px] font-black uppercase tracking-widest text-white">Nominal</th>
                     <th className="border border-[#004237] px-3 py-2 text-left text-[10px] font-black uppercase tracking-widest text-white">Keterangan</th>
                     <th className="border border-[#004237] px-3 py-2 text-center text-[10px] font-black uppercase tracking-widest text-white">Status</th>
@@ -1447,7 +1447,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                     <table className="w-full min-w-[840px] text-[11px]">
                       <thead className="sticky top-0 bg-[#005245] text-white">
                         <tr>
-                          <th className="px-3 py-2 text-left font-black uppercase">AKUN (Cr)</th>
+                          <th className="px-3 py-2 text-left font-black uppercase">UNIT KERJA (Cr)</th>
                           <th className="px-3 py-2 text-left font-black uppercase">WhatsApp</th>
                           <th className="px-3 py-2 text-center font-black uppercase">Trx</th>
                           <th className="px-3 py-2 text-right font-black uppercase">Nominal</th>
@@ -1607,7 +1607,7 @@ export function HutangOperasional({ currentUser, roleDatabasePermissionMap = {} 
                     <table className="w-full min-w-[720px] text-[11px]">
                       <thead className="sticky top-0 bg-[#005245] text-white">
                         <tr>
-                          <th className="px-3 py-2 text-left font-black uppercase">AKUN (Cr)</th>
+                          <th className="px-3 py-2 text-left font-black uppercase">UNIT KERJA (Cr)</th>
                           <th className="px-3 py-2 text-left font-black uppercase">Email</th>
                           <th className="px-3 py-2 text-center font-black uppercase">Trx</th>
                           <th className="px-3 py-2 text-right font-black uppercase">Nominal</th>

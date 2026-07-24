@@ -1,4 +1,4 @@
-import { Home, Briefcase, Landmark, FileText, Settings, BarChart3 } from 'lucide-react';
+import { Home, Briefcase, Landmark, FileText, Settings, BarChart3, WalletCards } from 'lucide-react';
 
 export interface MenuItem {
   id: string;
@@ -28,6 +28,14 @@ export const normalizeRoleId = (role: string) => role.trim().toLowerCase();
 
 export const BASE_MENU_ITEMS: MenuItem[] = [
   { id: 'dashboard', label: 'Halaman Utama', icon: Home },
+  {
+    id: 'anggaran',
+    label: 'Anggaran',
+    icon: WalletCards,
+    subItems: [
+      { id: 'data-alokasi', label: 'Data Alokasi' },
+    ],
+  },
   {
     id: 'moker',
     label: 'Modal Kerja',
@@ -70,6 +78,7 @@ export const BASE_MENU_ITEMS: MenuItem[] = [
         ],
       },
       { id: 'saldo-harian', label: 'Saldo Harian' },
+      { id: 'data-drop-poll', label: 'Data Drop/Poll' },
     ],
   },
   { id: 'hutang', label: 'Hutang Operasional Lain', icon: FileText },

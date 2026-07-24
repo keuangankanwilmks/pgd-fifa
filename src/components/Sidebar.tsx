@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Home, Briefcase, Landmark, FileText, ChevronDown, ChevronRight, LogOut, User as UserIcon, Scale, Users, Settings, BarChart3, AppWindow, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, LogOut, Share2, User as UserIcon } from 'lucide-react';
 import { User } from '../App';
 import { Logo } from './Logo';
 import { db, handleFirestoreError, OperationType, auth } from '../firebase';
@@ -7,6 +7,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { getMenuItems, type RoleAccessMap } from '../constants/menuItems';
 import { ConfirmModal } from './ConfirmModal';
 import { ProfileSettingsModal } from './ProfileSettingsModal';
+import { usePWA } from '../contexts/PWAContext';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -24,7 +25,9 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = React.useState(false);
   const [isProfileOpen, setIsProfileOpen] = React.useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = React.useState(false);
+  const [showIosInstallGuide, setShowIosInstallGuide] = React.useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const { canInstall, installApp, isIos } = usePWA();
 
   const menuItems = getMenuItems(currentUser.role, roleAccessMap);
 
@@ -171,7 +174,7 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
         </nav>
       </div>
 
-      <div className="p-4 border-t border-[#004237] flex flex-col gap-4">
+      <div className="fifa-sidebar-footer p-4 border-t border-[#004237] flex flex-col gap-4">
         <div ref={userMenuRef} className="relative">
           {isUserMenuOpen && (
             <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-[#006A5A] bg-[#004237] p-2 shadow-2xl fifa-modal-panel fifa-modal-open">
@@ -185,6 +188,31 @@ export function Sidebar({ isOpen, setIsOpen, activeTab, setActiveTab, currentUse
                 <UserIcon className="h-4 w-4" />
                 Profil Setting
               </button>
+              {canInstall && (
+                <button
+                  onClick={async () => {
+                    if (isIos) {
+                      setShowIosInstallGuide(prev => !prev);
+                      return;
+                    }
+                    await installApp();
+                    setIsUserMenuOpen(false);
+                  }}
+                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-emerald-50 transition-colors hover:bg-[#006A5A]"
+                >
+                  <Download className="h-4 w-4" />
+                  Instal Aplikasi
+                </button>
+              )}
+              {showIosInstallGuide && isIos && (
+                <div className="mx-1 mt-1 rounded-lg border border-emerald-400/20 bg-[#003a31] px-3 py-2 text-xs leading-relaxed text-emerald-50">
+                  <div className="mb-1 flex items-center gap-1.5 font-semibold">
+                    <Share2 className="h-3.5 w-3.5" />
+                    Instal di iPhone/iPad
+                  </div>
+                  Tekan Share di Safari, lalu pilih Add to Home Screen.
+                </div>
+              )}
               <button
                 onClick={() => {
                   setIsUserMenuOpen(false);

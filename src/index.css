@@ -1,5 +1,33 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+  background: #f9fafb;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100dvh;
+  background: #f9fafb;
+}
+
+.fifa-app-shell {
+  padding-top: env(safe-area-inset-top, 0);
+  padding-right: env(safe-area-inset-right, 0);
+  padding-left: env(safe-area-inset-left, 0);
+}
+
+.fifa-sidebar-footer {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+}
+
 .fifa-modal-backdrop {
   transition: opacity 170ms ease;
 }

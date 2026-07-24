@@ -3,7 +3,7 @@ import { Scale, Lock, User as UserIcon, ArrowRight, Eye, EyeOff } from 'lucide-r
 import { User } from '../App';
 import toast from 'react-hot-toast';
 import { auth, db } from '../firebase';
-import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 
 import { Logo } from '../components/Logo';
@@ -19,20 +19,6 @@ export function Login({ onLogin, users }: LoginProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      toast.success('Berhasil masuk dengan Google');
-    } catch (error: any) {
-      console.error('Google login error:', error);
-      toast.error('Gagal masuk dengan Google');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleGuestLogin = () => {
     const guestUser: User = {
@@ -202,34 +188,14 @@ export function Login({ onLogin, users }: LoginProps) {
           </form>
 
           <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-100"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Atau masuk dengan</span>
-              </div>
-            </div>
-
-            <div className="mt-6 space-y-3">
-              <button
-                onClick={handleGoogleLogin}
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-200 rounded-xl shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#009B4F] transition-all disabled:opacity-50"
-              >
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-                Masuk dengan Google
-              </button>
-
-              <button
-                onClick={handleGuestLogin}
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-200 rounded-xl shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#009B4F] transition-all disabled:opacity-50"
-              >
-                <UserIcon className="w-5 h-5 text-gray-400" />
-                Masuk sebagai Tamu
-              </button>
-            </div>
+            <button
+              onClick={handleGuestLogin}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-200 rounded-xl shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#009B4F] transition-all disabled:opacity-50"
+            >
+              <UserIcon className="w-5 h-5 text-gray-400" />
+              Masuk sebagai Tamu
+            </button>
           </div>
 
           <div className="mt-8 pt-6 border-t border-gray-100 text-center">

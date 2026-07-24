@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { db, handleFirestoreError, OperationType, auth } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { blastTemplateService, defaultBlastEmailTemplate, defaultBlastWhatsAppTemplate } from '../services/blastTemplateService';
+import { blastTemplateService, defaultAlokasiBlastEmailTemplate, defaultAlokasiBlastWhatsAppTemplate, defaultBlastEmailTemplate, defaultBlastWhatsAppTemplate } from '../services/blastTemplateService';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { AnimatedModal } from '../components/AnimatedModal';
 import { uploadExcelConfigService, type UploadExcelConfigMap } from '../services/uploadExcelConfigService';
@@ -35,6 +35,7 @@ interface DataEditorRow {
 }
 
 type EditorConfirmAction = 'saveAll' | 'deleteRow' | null;
+type BlastTemplateTab = 'hutang' | 'alokasi';
 
 export function Settings({ type }: SettingsProps) {
   const [apps, setApps] = useState<AppLink[]>([]);
@@ -57,6 +58,9 @@ export function Settings({ type }: SettingsProps) {
   const [isSavingAllEditorRows, setIsSavingAllEditorRows] = useState(false);
   const [blastTemplate, setBlastTemplate] = useState(defaultBlastEmailTemplate);
   const [blastWhatsAppTemplate, setBlastWhatsAppTemplate] = useState(defaultBlastWhatsAppTemplate);
+  const [alokasiBlastTemplate, setAlokasiBlastTemplate] = useState(defaultAlokasiBlastEmailTemplate);
+  const [alokasiBlastWhatsAppTemplate, setAlokasiBlastWhatsAppTemplate] = useState(defaultAlokasiBlastWhatsAppTemplate);
+  const [blastTemplateTab, setBlastTemplateTab] = useState<BlastTemplateTab>('hutang');
   const [isBlastTemplateLoading, setIsBlastTemplateLoading] = useState(false);
   const [isBlastTemplateSaving, setIsBlastTemplateSaving] = useState(false);
   const [uploadExcelConfigs, setUploadExcelConfigs] = useState<UploadExcelConfigMap>({});
@@ -91,8 +95,14 @@ export function Settings({ type }: SettingsProps) {
 
     setIsBlastTemplateLoading(true);
     const loadTemplate = type === 'template-blast'
-      ? blastTemplateService.getTemplate().then(setBlastTemplate)
-      : blastTemplateService.getWhatsAppTemplate().then(setBlastWhatsAppTemplate);
+      ? Promise.all([
+          blastTemplateService.getTemplate().then(setBlastTemplate),
+          blastTemplateService.getAlokasiTemplate().then(setAlokasiBlastTemplate),
+        ])
+      : Promise.all([
+          blastTemplateService.getWhatsAppTemplate().then(setBlastWhatsAppTemplate),
+          blastTemplateService.getAlokasiWhatsAppTemplate().then(setAlokasiBlastWhatsAppTemplate),
+        ]);
 
     loadTemplate
       .catch(error => {
@@ -193,15 +203,51 @@ export function Settings({ type }: SettingsProps) {
     return `${rendered}\n\nRincian transaksi:\n${detailRows}`;
   };
 
+  const renderAlokasiBlastTemplatePreview = () => {
+    const detailRows = `
+      <tr style="border-bottom: 1px solid #e5e7eb;"><td style="padding: 10px;">1</td><td style="padding: 10px; font-weight: 700;">Biaya Operasional</td><td style="padding: 10px;">ACT-001</td><td style="padding: 10px; text-align: right; font-weight: 700; color: #1d4ed8;">Rp 12.500.000</td></tr>
+    `;
+    return alokasiBlastTemplate
+      .replaceAll('{{outlet}}', 'CP AMBON')
+      .replaceAll('{{cabang}}', 'CP AMBON')
+      .replaceAll('{{tanggal}}', '2026-05-19')
+      .replaceAll('{{jumlahTransaksi}}', '1')
+      .replaceAll('{{totalNominal}}', 'Rp 12.500.000')
+      .replaceAll('{{detailRows}}', detailRows);
+  };
+
+  const renderAlokasiBlastWhatsAppPreview = () => {
+    const detailRows = '1. Biaya Operasional\n   Kode Activity: ACT-001\n   Nominal: Rp 12.500.000';
+    const rendered = alokasiBlastWhatsAppTemplate
+      .replaceAll('{{1}}', 'CP AMBON')
+      .replaceAll('{{2}}', '2026-05-19')
+      .replaceAll('{{3}}', '1')
+      .replaceAll('{{4}}', 'Rp 12.500.000')
+      .replaceAll('{{5}}', detailRows)
+      .replaceAll('{{outlet}}', 'CP AMBON')
+      .replaceAll('{{cabang}}', 'CP AMBON')
+      .replaceAll('{{tanggal}}', '2026-05-19')
+      .replaceAll('{{jumlahTransaksi}}', '1')
+      .replaceAll('{{totalNominal}}', 'Rp 12.500.000')
+      .replaceAll('{{detailRows}}', detailRows);
+    return alokasiBlastWhatsAppTemplate.includes('{{5}}') || alokasiBlastWhatsAppTemplate.includes('{{detailRows}}')
+      ? rendered
+      : `${rendered}\n\nRincian transaksi:\n${detailRows}`;
+  };
+
   const saveBlastTemplate = async () => {
-    if (!blastTemplate.trim()) {
+    if (!(blastTemplateTab === 'alokasi' ? alokasiBlastTemplate : blastTemplate).trim()) {
       toast.error('Template tidak boleh kosong');
       return;
     }
 
     setIsBlastTemplateSaving(true);
     try {
-      await blastTemplateService.saveTemplate(blastTemplate);
+      if (blastTemplateTab === 'alokasi') {
+        await blastTemplateService.saveAlokasiTemplate(alokasiBlastTemplate);
+      } else {
+        await blastTemplateService.saveTemplate(blastTemplate);
+      }
       toast.success('Template blast berhasil disimpan');
     } catch (error) {
       console.error('Blast template save error:', error);
@@ -212,14 +258,18 @@ export function Settings({ type }: SettingsProps) {
   };
 
   const saveBlastWhatsAppTemplate = async () => {
-    if (!blastWhatsAppTemplate.trim()) {
+    if (!(blastTemplateTab === 'alokasi' ? alokasiBlastWhatsAppTemplate : blastWhatsAppTemplate).trim()) {
       toast.error('Template WhatsApp tidak boleh kosong');
       return;
     }
 
     setIsBlastTemplateSaving(true);
     try {
-      await blastTemplateService.saveWhatsAppTemplate(blastWhatsAppTemplate);
+      if (blastTemplateTab === 'alokasi') {
+        await blastTemplateService.saveAlokasiWhatsAppTemplate(alokasiBlastWhatsAppTemplate);
+      } else {
+        await blastTemplateService.saveWhatsAppTemplate(blastWhatsAppTemplate);
+      }
       toast.success('Template blast WhatsApp berhasil disimpan');
     } catch (error) {
       console.error('Blast WhatsApp template save error:', error);
@@ -560,13 +610,13 @@ export function Settings({ type }: SettingsProps) {
               <div>
                 <h2 className="text-xl font-bold text-gray-800">Template Blast WhatsApp</h2>
                 <p className="mt-1 max-w-3xl text-sm text-gray-500">
-                  Kelola isi pesan untuk tombol Send WhatsApp pada Hutang Operasional Lain.
+                  Kelola isi pesan untuk tombol Send WhatsApp pada {blastTemplateTab === 'alokasi' ? 'Data Alokasi Anggaran.' : 'Hutang Operasional Lain.'}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => setBlastWhatsAppTemplate(defaultBlastWhatsAppTemplate)}
+                onClick={() => blastTemplateTab === 'alokasi' ? setAlokasiBlastWhatsAppTemplate(defaultAlokasiBlastWhatsAppTemplate) : setBlastWhatsAppTemplate(defaultBlastWhatsAppTemplate)}
                 className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
               >
                 <RotateCcw className="h-4 w-4" />
@@ -582,6 +632,10 @@ export function Settings({ type }: SettingsProps) {
               </button>
             </div>
           </div>
+          <div className="mt-5 flex w-fit rounded-lg bg-gray-100 p-1">
+            <button onClick={() => setBlastTemplateTab('hutang')} className={`rounded-md px-4 py-2 text-xs font-bold transition-colors ${blastTemplateTab === 'hutang' ? 'bg-white text-[#009B4F] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Hutang Opr Lain</button>
+            <button onClick={() => setBlastTemplateTab('alokasi')} className={`rounded-md px-4 py-2 text-xs font-bold transition-colors ${blastTemplateTab === 'alokasi' ? 'bg-white text-[#009B4F] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Alokasi Anggaran</button>
+          </div>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[1fr_0.9fr]">
@@ -589,7 +643,7 @@ export function Settings({ type }: SettingsProps) {
             <div className="border-b border-gray-100 px-5 py-4">
               <h3 className="text-sm font-black text-gray-800">Template Pesan WhatsApp</h3>
               <p className="mt-1 text-xs text-gray-500">
-                Placeholder: {'{{1}}'} cabang, {'{{2}}'} tanggal, {'{{3}}'} jumlah transaksi, {'{{4}}'} total nominal, {'{{5}}'} rincian transaksi.
+                Placeholder: {'{{1}}'} / {'{{outlet}}'} outlet, {'{{2}}'} / {'{{tanggal}}'} tanggal, {'{{3}}'} / {'{{jumlahTransaksi}}'} jumlah transaksi, {'{{4}}'} / {'{{totalNominal}}'} total nominal, {'{{5}}'} / {'{{detailRows}}'} rincian transaksi.
               </p>
             </div>
             {isBlastTemplateLoading ? (
@@ -598,8 +652,8 @@ export function Settings({ type }: SettingsProps) {
               </div>
             ) : (
               <textarea
-                value={blastWhatsAppTemplate}
-                onChange={(event) => setBlastWhatsAppTemplate(event.target.value)}
+                value={blastTemplateTab === 'alokasi' ? alokasiBlastWhatsAppTemplate : blastWhatsAppTemplate}
+                onChange={(event) => blastTemplateTab === 'alokasi' ? setAlokasiBlastWhatsAppTemplate(event.target.value) : setBlastWhatsAppTemplate(event.target.value)}
                 spellCheck={false}
                 className="min-h-0 flex-1 resize-none border-0 bg-gray-950 p-5 font-mono text-[12px] leading-relaxed text-emerald-100 outline-none"
               />
@@ -612,7 +666,7 @@ export function Settings({ type }: SettingsProps) {
               <p className="mt-1 text-xs text-gray-500">Preview menggunakan contoh data sebelum template dipakai di link wa.me.</p>
             </div>
             <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
-              <pre className="whitespace-pre-wrap rounded-xl border border-gray-100 bg-white p-4 font-mono text-sm leading-relaxed text-gray-800">{renderBlastWhatsAppPreview()}</pre>
+              <pre className="whitespace-pre-wrap rounded-xl border border-gray-100 bg-white p-4 font-mono text-sm leading-relaxed text-gray-800">{blastTemplateTab === 'alokasi' ? renderAlokasiBlastWhatsAppPreview() : renderBlastWhatsAppPreview()}</pre>
             </div>
           </div>
         </div>
@@ -632,13 +686,13 @@ export function Settings({ type }: SettingsProps) {
               <div>
                 <h2 className="text-xl font-bold text-gray-800">Template Blast Email</h2>
                 <p className="mt-1 max-w-3xl text-sm text-gray-500">
-                  Kelola template HTML untuk Preview Body Email pada Blast Email Hutang Operasional Lain.
+                  Kelola template HTML untuk Preview Body Email pada Blast Email {blastTemplateTab === 'alokasi' ? 'Data Alokasi Anggaran.' : 'Hutang Operasional Lain.'}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={() => setBlastTemplate(defaultBlastEmailTemplate)}
+                onClick={() => blastTemplateTab === 'alokasi' ? setAlokasiBlastTemplate(defaultAlokasiBlastEmailTemplate) : setBlastTemplate(defaultBlastEmailTemplate)}
                 className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition-colors hover:bg-gray-50"
               >
                 <RotateCcw className="h-4 w-4" />
@@ -654,6 +708,10 @@ export function Settings({ type }: SettingsProps) {
               </button>
             </div>
           </div>
+          <div className="mt-5 flex w-fit rounded-lg bg-gray-100 p-1">
+            <button onClick={() => setBlastTemplateTab('hutang')} className={`rounded-md px-4 py-2 text-xs font-bold transition-colors ${blastTemplateTab === 'hutang' ? 'bg-white text-[#009B4F] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Hutang Opr Lain</button>
+            <button onClick={() => setBlastTemplateTab('alokasi')} className={`rounded-md px-4 py-2 text-xs font-bold transition-colors ${blastTemplateTab === 'alokasi' ? 'bg-white text-[#009B4F] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Alokasi Anggaran</button>
+          </div>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[1fr_0.9fr]">
@@ -661,7 +719,7 @@ export function Settings({ type }: SettingsProps) {
             <div className="border-b border-gray-100 px-5 py-4">
               <h3 className="text-sm font-black text-gray-800">Kode HTML Email</h3>
               <p className="mt-1 text-xs text-gray-500">
-                Placeholder tersedia: {'{{cabang}}'}, {'{{tanggal}}'}, {'{{jumlahTransaksi}}'}, {'{{totalNominal}}'}, {'{{detailRows}}'}.
+                Placeholder tersedia: {'{{cabang}}'} / {'{{outlet}}'}, {'{{tanggal}}'}, {'{{jumlahTransaksi}}'}, {'{{totalNominal}}'}, {'{{detailRows}}'}.
               </p>
             </div>
             {isBlastTemplateLoading ? (
@@ -670,8 +728,8 @@ export function Settings({ type }: SettingsProps) {
               </div>
             ) : (
               <textarea
-                value={blastTemplate}
-                onChange={(event) => setBlastTemplate(event.target.value)}
+                value={blastTemplateTab === 'alokasi' ? alokasiBlastTemplate : blastTemplate}
+                onChange={(event) => blastTemplateTab === 'alokasi' ? setAlokasiBlastTemplate(event.target.value) : setBlastTemplate(event.target.value)}
                 spellCheck={false}
                 className="min-h-0 flex-1 resize-none border-0 bg-gray-950 p-5 font-mono text-[11px] leading-relaxed text-emerald-100 outline-none"
               />
@@ -684,7 +742,7 @@ export function Settings({ type }: SettingsProps) {
               <p className="mt-1 text-xs text-gray-500">Preview menggunakan contoh data agar layout email bisa dicek sebelum disimpan.</p>
             </div>
             <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
-              <div dangerouslySetInnerHTML={{ __html: renderBlastTemplatePreview() }} />
+              <div dangerouslySetInnerHTML={{ __html: blastTemplateTab === 'alokasi' ? renderAlokasiBlastTemplatePreview() : renderBlastTemplatePreview() }} />
             </div>
           </div>
         </div>

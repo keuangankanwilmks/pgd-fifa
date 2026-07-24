@@ -4,13 +4,16 @@ import {BrowserRouter} from 'react-router-dom';
 import App from './App.tsx';
 import './index.css';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { PWAProvider } from './contexts/PWAContext.tsx';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <PWAProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </PWAProvider>
     </ErrorBoundary>
   </StrictMode>,
 );

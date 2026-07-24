@@ -601,17 +601,17 @@ export function DataMoker({ currentUser, roleDatabasePermissionMap = {} }: DataM
                           <div className="flex items-center justify-center gap-2">
                             <button
                               onClick={() => handleSave(i)}
-                              className="p-1.5 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors"
+                              className="rounded-lg bg-green-100 p-1.5 text-green-600 transition-colors hover:bg-green-200"
                               title="Simpan"
                             >
-                              <Check className="w-4 h-4" />
+                              <Check className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={handleCancel}
-                              className="p-1.5 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                              className="rounded-lg bg-red-100 p-1.5 text-red-600 transition-colors hover:bg-red-200"
                               title="Batal"
                             >
-                              <X className="w-4 h-4" />
+                              <X className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -653,7 +653,7 @@ export function DataMoker({ currentUser, roleDatabasePermissionMap = {} }: DataM
                           {canEditData && (
                             <button
                               onClick={() => handleEdit(i, item)}
-                              className="p-1 px-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                              className="rounded-lg bg-blue-50 p-1.5 text-blue-600 transition-colors hover:bg-blue-100 cursor-pointer"
                               title="Edit Data"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
@@ -662,7 +662,7 @@ export function DataMoker({ currentUser, roleDatabasePermissionMap = {} }: DataM
                           {canDeleteData && (
                             <button
                               onClick={() => handleDeleteRow(item.rowIndex!)}
-                              className="p-1 px-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              className="rounded-lg p-1.5 text-red-600 transition-colors hover:bg-red-50 cursor-pointer"
                               title="Hapus Data"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

@@ -21,6 +21,8 @@ import { ProsesMoker } from './pages/ProsesMoker';
 import { DataMoker } from './pages/DataMoker';
 import { HutangOperasional } from './pages/HutangOperasional';
 import { SaldoHarian } from './pages/SaldoHarian';
+import { DataDropPoll } from './pages/DataDropPoll';
+import { DataAlokasi } from './pages/DataAlokasi';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
@@ -30,6 +32,7 @@ import { NotificationProvider } from './contexts/NotificationContext';
 import { getPathFromTab, getTabFromPath } from './constants/routeConfig';
 import { isMenuAllowed, normalizeRoleId, type RoleAccessMap } from './constants/menuItems';
 import { type RoleDatabasePermissionMap } from './constants/databasePermissions';
+import { PWAStatus } from './components/PWAStatus';
 
 export interface User {
   nik: string;
@@ -308,8 +311,9 @@ export default function App() {
   return (
     <NotificationProvider>
       <Toaster position="top-right" />
+      <PWAStatus />
       <LoadingModal isOpen={isLoading} message={loadingMessage} />
-      <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
+      <div className="fifa-app-shell flex h-[100dvh] overflow-hidden bg-gray-50 font-sans">
         <Sidebar 
           isOpen={sidebarOpen} 
           setIsOpen={setSidebarOpen} 
@@ -333,6 +337,7 @@ export default function App() {
               <Route path="/" element={<Dashboard onAppClick={(id) => handleTabChange(`support-${id}`)} />} />
               <Route path="/modal-kerja/proses-moker" element={guardRoute('proses-moker', <ProsesMoker />)} />
               <Route path="/modal-kerja/data-moker" element={guardRoute('data-moker', <DataMoker currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
+              <Route path="/anggaran/data-alokasi" element={guardRoute('data-alokasi', <DataAlokasi currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/rekonsiliasi-bank/bni/proses-rekon" element={guardRoute('rekon-bni',
                 <RekonBNI 
                   bank="BNI"
@@ -364,6 +369,7 @@ export default function App() {
               )} />
               <Route path="/rekonsiliasi-bank/bsi/data-rekon" element={guardRoute('data-rekon-bsi', <DataRekon bank="BSI" onUpdateRekon={handleUpdateRekon} currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/rekonsiliasi-bank/saldo-harian" element={guardRoute('saldo-harian', <SaldoHarian currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
+              <Route path="/rekonsiliasi-bank/data-drop-poll" element={guardRoute('data-drop-poll', <DataDropPoll currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/report" element={guardRoute('report', <Report currentUser={currentUser} />)} />
               <Route path="/hutang-operasional" element={guardRoute('hutang', <HutangOperasional currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/supporting-app/:id" element={<SupportingAppView tabId={activeTab} />} />

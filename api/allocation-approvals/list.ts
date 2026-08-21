@@ -1,6 +1,6 @@
-import { authorizeAllocationRequest } from '../_lib/allocation-auth';
-import { sendApiError } from '../_lib/api-response';
-import { getServerFirestore } from '../_lib/google-server';
+import { authorizeAllocationRequest } from '../_lib/allocation-auth.js';
+import { sendApiError } from '../_lib/api-response.js';
+import { getServerFirestore } from '../_lib/google-server.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {

@@ -1,6 +1,6 @@
-import { sendApiError } from '../_lib/api-response';
-import { getRequestIp, enforceRateLimit } from '../_lib/rate-limit';
-import { getServerAuth, getServerFirestore } from '../_lib/google-server';
+import { sendApiError } from '../_lib/api-response.js';
+import { getRequestIp, enforceRateLimit } from '../_lib/rate-limit.js';
+import { getServerAuth, getServerFirestore } from '../_lib/google-server.js';
 
 const invalidLogin = () => Object.assign(new Error('NIK atau password tidak valid'), { statusCode: 401 });
 

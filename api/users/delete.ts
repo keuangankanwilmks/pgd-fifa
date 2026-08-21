@@ -1,6 +1,6 @@
-import { requireAdmin } from '../_lib/app-auth';
-import { sendApiError } from '../_lib/api-response';
-import { getServerAuth, getServerFirestore } from '../_lib/google-server';
+import { requireAdmin } from '../_lib/app-auth.js';
+import { sendApiError } from '../_lib/api-response.js';
+import { getServerAuth, getServerFirestore } from '../_lib/google-server.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method tidak diizinkan' });
@@ -24,4 +24,3 @@ export default async function handler(req: any, res: any) {
     return sendApiError(res, error, 'Gagal menghapus user');
   }
 }
-

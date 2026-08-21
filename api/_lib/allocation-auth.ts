@@ -1,4 +1,4 @@
-import { authorizeAppRequest } from './app-auth';
+import { authorizeAppRequest } from './app-auth.js';
 
 export interface AuthorizedAllocationUser {
   uid: string;

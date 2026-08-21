@@ -1,6 +1,6 @@
-import { authorizeAllocationRequest } from '../_lib/allocation-auth';
-import { sendApiError } from '../_lib/api-response';
-import { getGoogleDrive, getServerFirestore } from '../_lib/google-server';
+import { authorizeAllocationRequest } from '../_lib/allocation-auth.js';
+import { sendApiError } from '../_lib/api-response.js';
+import { getGoogleDrive, getServerFirestore } from '../_lib/google-server.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' });
@@ -50,4 +50,3 @@ export default async function handler(req: any, res: any) {
     return sendApiError(res, error);
   }
 }
-

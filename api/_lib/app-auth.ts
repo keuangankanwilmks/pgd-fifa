@@ -1,4 +1,4 @@
-import { getServerAuth, getServerFirestore } from './google-server';
+import { getServerAuth, getServerFirestore } from './google-server.js';
 
 export interface AuthorizedAppUser {
   uid: string;
@@ -68,4 +68,3 @@ export const requireAdmin = async (req: any) => {
   if (!user.isAdmin) throw httpError('Akses Administrator diperlukan', 403);
   return user;
 };
-

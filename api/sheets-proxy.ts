@@ -1,6 +1,6 @@
 import { google, sheets_v4 } from 'googleapis';
 import { config as loadDotenv } from 'dotenv';
-import { authorizeAppRequest, type AuthorizedAppUser } from './_lib/app-auth';
+import { authorizeAppRequest, type AuthorizedAppUser } from './_lib/app-auth.js';
 
 loadDotenv({ path: '.env.local', override: false });
 loadDotenv({ override: false });

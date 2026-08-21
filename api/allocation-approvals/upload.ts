@@ -1,8 +1,8 @@
 import { createReadStream, promises as fs } from 'node:fs';
 import formidable, { type Fields, type Files, type File } from 'formidable';
-import { authorizeAllocationRequest } from '../_lib/allocation-auth';
-import { sendApiError } from '../_lib/api-response';
-import { getGoogleDrive, getGoogleSheets, getServerFirestore } from '../_lib/google-server';
+import { authorizeAllocationRequest } from '../_lib/allocation-auth.js';
+import { sendApiError } from '../_lib/api-response.js';
+import { getGoogleDrive, getGoogleSheets, getServerFirestore } from '../_lib/google-server.js';
 
 export const config = { api: { bodyParser: false } };
 
@@ -216,4 +216,3 @@ export default async function handler(req: any, res: any) {
     if (temporaryPath) await fs.unlink(temporaryPath).catch(() => undefined);
   }
 }
-

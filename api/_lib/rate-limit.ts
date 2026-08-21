@@ -27,3 +27,6 @@ export const enforceRateLimit = (
   }
 };
 
+export const clearRateLimit = (key: string) => {
+  entries.delete(key);
+};

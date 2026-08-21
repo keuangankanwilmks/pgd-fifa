@@ -22,10 +22,11 @@ import { DataMoker } from './pages/DataMoker';
 import { HutangOperasional } from './pages/HutangOperasional';
 import { SaldoHarian } from './pages/SaldoHarian';
 import { DataDropPoll } from './pages/DataDropPoll';
-import { DataAlokasi } from './pages/DataAlokasi';
-import { auth, db, handleFirestoreError, OperationType } from './firebase';
+import { DataAlokasiPage } from './pages/DataAlokasiPage';
+import { InputDropping } from './pages/InputDropping';
+import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { norekService } from './services/norekService';
 import { cabangService } from './services/cabangService';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -33,21 +34,16 @@ import { getPathFromTab, getTabFromPath } from './constants/routeConfig';
 import { isMenuAllowed, normalizeRoleId, type RoleAccessMap } from './constants/menuItems';
 import { type RoleDatabasePermissionMap } from './constants/databasePermissions';
 import { PWAStatus } from './components/PWAStatus';
+import { userAdminService } from './services/userAdminService';
 
 export interface User {
   nik: string;
   name: string;
   role: string;
   status: 'active' | 'inactive';
-  password?: string;
   email?: string;
   uid?: string;
 }
-
-const INITIAL_USERS: User[] = [
-  { nik: 'admin', name: 'Administrator', role: 'admin', status: 'active', password: 'admin' },
-  { nik: '123456', name: 'User Biasa', role: 'user', status: 'active', password: 'password' }
-];
 
 export default function App() {
   const [users, setUsers] = useState<User[]>([]);
@@ -89,23 +85,10 @@ export default function App() {
         setLoadingMessage('Memuat profil...');
         try {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          let userData: User;
-
-          if (userDoc.exists()) {
-            userData = userDoc.data() as User;
-          } else {
-            // Check if user exists by email (for non-google users who might be logging in)
-            const isAdminUser = firebaseUser.email === 'keuangan.kanwilmks@gmail.com';
-            userData = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              name: firebaseUser.displayName || 'User',
-              nik: firebaseUser.email ? firebaseUser.email.split('@')[0].toUpperCase() : `G-${firebaseUser.uid.substring(0, 8)}`,
-              role: isAdminUser ? 'admin' : 'user',
-              status: 'active'
-            };
-            await setDoc(doc(db, 'users', firebaseUser.uid), userData);
-          }
+          if (!userDoc.exists()) throw new Error('Akun Firebase belum terdaftar di FIFA');
+          const userData = { ...userDoc.data(), uid: firebaseUser.uid } as User;
+          if (userData.status !== 'active') throw new Error('Akun FIFA tidak aktif');
+          if (!userData.role) throw new Error('Role akun FIFA belum dikonfigurasi');
           
           setCurrentUser(userData);
 
@@ -113,22 +96,11 @@ export default function App() {
           seedData();
         } catch (error) {
           console.error('Error fetching user profile:', error);
-          const fallbackUser: User = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            name: firebaseUser.displayName || 'User',
-            nik: firebaseUser.email ? firebaseUser.email.split('@')[0].toUpperCase() : `G-${firebaseUser.uid.substring(0, 8)}`,
-            role: firebaseUser.email === 'keuangan.kanwilmks@gmail.com' ? 'admin' : 'user',
-            status: 'active'
-          };
-          setCurrentUser(fallbackUser);
+          setCurrentUser(null);
+          await signOut(auth).catch(() => undefined);
         }
       } else {
-        // Only clear currentUser if it's not a guest user
-        setCurrentUser(prev => {
-          if (prev?.role === 'guest') return prev;
-          return null;
-        });
+        setCurrentUser(null);
         setUsers([]);
       }
       setIsLoading(false);
@@ -186,20 +158,22 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (!currentUser || !isMenuAllowed(currentUser.role, 'user-management', roleAccessMap)) {
+    if (!currentUser || normalizeRoleId(currentUser.role) !== 'admin') {
       setUsers([]);
       return;
     }
 
-    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const usersData = snapshot.docs.map(doc => doc.data() as User);
-      setUsers(usersData);
-    }, (error) => {
-      console.error('Users listener error:', error);
-      handleFirestoreError(error, OperationType.GET, 'users');
-    });
+    let cancelled = false;
+    void userAdminService.list()
+      .then(result => {
+        if (!cancelled) setUsers(Array.isArray(result?.users) ? result.users : []);
+      })
+      .catch(error => {
+        console.error('Users request error:', error);
+        if (!cancelled) setUsers([]);
+      });
 
-    return () => unsubscribe();
+    return () => { cancelled = true; };
   }, [currentUser, roleAccessMap]);
 
   const handleLogin = (user: User) => {
@@ -337,7 +311,8 @@ export default function App() {
               <Route path="/" element={<Dashboard onAppClick={(id) => handleTabChange(`support-${id}`)} />} />
               <Route path="/modal-kerja/proses-moker" element={guardRoute('proses-moker', <ProsesMoker />)} />
               <Route path="/modal-kerja/data-moker" element={guardRoute('data-moker', <DataMoker currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
-              <Route path="/anggaran/data-alokasi" element={guardRoute('data-alokasi', <DataAlokasi currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
+              <Route path="/anggaran/input-dropping" element={guardRoute('input-dropping', <InputDropping currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
+              <Route path="/anggaran/data-alokasi" element={guardRoute('data-alokasi', <DataAlokasiPage currentUser={currentUser} roleDatabasePermissionMap={roleDatabasePermissionMap} />)} />
               <Route path="/rekonsiliasi-bank/bni/proses-rekon" element={guardRoute('rekon-bni',
                 <RekonBNI 
                   bank="BNI"

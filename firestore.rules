@@ -43,98 +43,172 @@
 //   - nomorGL: string (required) - GL number
 //   - pic: string (required) - Person in charge
 //
+// Collection: mata_anggaran
+// Document ID: {mappingId}
+// Fields:
+//   - mataAnggaran: string (required)
+//   - kodeActivity: string (required)
+//
+// Collection: penandatangan
+// Document ID: input_dropping
+// Fields:
+//   - disetujuiOleh: string
+//   - diperiksaOleh: string
+//   - dibuatOleh: string
+//
 // ===============================================================
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper Functions
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    function isAdmin() {
-      return isAuthenticated() &&
-        ( request.auth.token.email == "keuangan.kanwilmks@gmail.com" ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') );
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
     }
-    
+
+    function isActiveUser() {
+      return isAuthenticated() &&
+             exists(userPath()) &&
+             get(userPath()).data.status == 'active';
+    }
+
+    function isAdmin() {
+      return isActiveUser() &&
+             (
+               request.auth.token.email == 'keuangan.kanwilmks@gmail.com' ||
+               get(userPath()).data.role == 'admin'
+             );
+    }
+
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isValidEmail(email) {
-      return email is string && (email.size() == 0 || email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"));
+    function isValidRoleId(roleId) {
+      return roleId.matches('^[a-z0-9-_]+$');
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+    function isValidDatabaseAction(value) {
+      return value is map &&
+             value.keys().hasOnly(['edit', 'delete']) &&
+             (!('edit' in value) || value.edit is bool) &&
+             (!('delete' in value) || value.delete is bool);
     }
 
-    function isValidUser(data) {
-      return hasOnlyAllowedFields(['nik', 'name', 'role', 'status', 'email', 'uid', 'password']) &&
-             data.nik is string && data.nik.size() > 0 &&
-             data.name is string && data.name.size() > 0 &&
-             data.role in ['admin', 'user'] &&
-             data.status in ['active', 'inactive'];
+    function isValidDatabasePermissions(value) {
+      return value is map &&
+             value.keys().hasOnly([
+               'data-moker',
+               'data-rekon',
+               'saldo-harian',
+               'hutang-operasional',
+               'anggaran'
+             ]) &&
+             (!('data-moker' in value) || isValidDatabaseAction(value['data-moker'])) &&
+             (!('data-rekon' in value) || isValidDatabaseAction(value['data-rekon'])) &&
+             (!('saldo-harian' in value) || isValidDatabaseAction(value['saldo-harian'])) &&
+             (!('hutang-operasional' in value) || isValidDatabaseAction(value['hutang-operasional'])) &&
+             (!('anggaran' in value) || isValidDatabaseAction(value['anggaran']));
+    }
+
+    function isValidRoleAccess(data) {
+      return data.keys().hasOnly(['label', 'menuIds', 'databasePermissions', 'createdAt', 'updatedAt']) &&
+             data.label is string && data.label.size() > 0 &&
+             data.menuIds is list && data.menuIds.size() <= 100 &&
+             (!('databasePermissions' in data) || isValidDatabasePermissions(data.databasePermissions));
     }
 
     function isValidPlafon(data) {
-      return hasOnlyAllowedFields(['namaCabang', 'nominal']) &&
+      return data.keys().hasOnly(['namaCabang', 'nominal']) &&
              data.namaCabang is string && data.namaCabang.size() > 0 &&
              data.nominal is number && data.nominal >= 0;
     }
 
-    // Public Collections (Read-only for everyone, Write for Admin)
-    match /_connection_test_/{docId} {
-      allow read: if true;
+    function isValidAppSetting(data) {
+      return data.keys().hasOnly(['html', 'text', 'configs', 'updatedAt']) &&
+             (!('html' in data) || data.html is string) &&
+             (!('text' in data) || data.text is string) &&
+             (!('configs' in data) || data.configs is map) &&
+             (!('updatedAt' in data) || data.updatedAt is string);
     }
 
-    match /cabang/{cabangId} {
+    match /_connection_test_/{docId} {
       allow read: if true;
+      allow write: if false;
+    }
+
+    match /cabang/{documentId} {
+      allow read: if isActiveUser();
       allow write: if isAdmin();
     }
 
-    match /plafon/{plafonId} {
-      allow read: if true;
+    match /plafon/{documentId} {
+      allow read: if isActiveUser();
       allow write: if isAdmin() && isValidPlafon(request.resource.data);
     }
 
-    match /norek_mapping/{mappingId} {
-      allow read: if true;
+    match /norek_mapping/{documentId} {
+      allow read: if isActiveUser();
       allow write: if isAdmin();
     }
 
-    match /supporting_apps/{appId} {
-      allow read: if true;
+    match /supporting_apps/{documentId} {
+      allow read: if isActiveUser();
       allow write: if isAdmin();
     }
 
-    match /gl_bank/{mappingId} {
-      allow read: if true;
+    match /gl_bank/{documentId} {
+      allow read: if isActiveUser();
       allow write: if isAdmin();
     }
 
-    // Private Collections
-    match /notifications/{notificationId} {
-      allow read, update, delete: if isAuthenticated() && isOwner(resource.data.userId);
-      allow create: if isAuthenticated() && isOwner(request.resource.data.userId);
+    match /mata_anggaran/{documentId} {
+      allow read: if isActiveUser();
+      allow write: if isAdmin();
     }
 
-    match /users/{userId} {
-      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin());
-      // Allow unauthenticated users to query by NIK for login purposes
-      allow list: if request.auth == null && request.query.limit == 1;
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    ( (isOwner(userId) && request.resource.data.role == 'user') || isAdmin() );
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    ( (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin() );
+    match /penandatangan/{documentId} {
+      allow read: if isActiveUser();
+      allow write: if isAdmin();
+    }
+
+    match /role_access/{roleId} {
+      allow read: if isAdmin() ||
+                  (isActiveUser() && get(userPath()).data.role == roleId);
+      allow create, update: if isAdmin() &&
+                            isValidRoleId(roleId) &&
+                            isValidRoleAccess(request.resource.data);
+      allow delete: if isAdmin() &&
+                    roleId != 'admin' &&
+                    roleId != 'user' &&
+                    roleId != 'guest';
+    }
+
+    match /app_settings/{settingId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin() && isValidAppSetting(request.resource.data);
       allow delete: if isAdmin();
     }
 
-    // Default deny
+    match /allocation_approval_batches/{batchId} {
+      // Metadata hanya diakses melalui API FIFA yang memverifikasi ID token.
+      allow read, write: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isActiveUser() && isOwner(resource.data.userId);
+      allow create: if isActiveUser() && isOwner(request.resource.data.userId);
+    }
+
+    match /users/{userId} {
+      allow read: if isActiveUser() && (isOwner(userId) || isAdmin());
+      // Create/update/delete user dilakukan oleh API backend Firebase Admin SDK.
+      allow create, update, delete: if false;
+    }
+
     match /{path=**} {
       allow read, write: if false;
     }

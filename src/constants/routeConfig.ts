@@ -3,6 +3,7 @@ export const TAB_TO_PATH: Record<string, string> = {
   'dashboard': '/',
   'proses-moker': '/modal-kerja/proses-moker',
   'data-moker': '/modal-kerja/data-moker',
+  'input-dropping': '/anggaran/input-dropping',
   'data-alokasi': '/anggaran/data-alokasi',
   'rekon-bni': '/rekonsiliasi-bank/bni/proses-rekon',
   'data-rekon-bni': '/rekonsiliasi-bank/bni/data-rekon',

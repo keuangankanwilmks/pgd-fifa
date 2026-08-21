@@ -3,6 +3,7 @@
  * All read and write operations go through the server-side proxy so the
  * spreadsheet can remain private and only be shared with the service account.
  */
+import { auth } from '../firebase';
 
 export interface GoogleSheetConfig {
   spreadsheetId: string;
@@ -35,32 +36,30 @@ interface SheetsProxyPayload {
   startIndex?: number;
   count?: number;
   data?: { range: string; values: any[][] }[];
-  secret?: string;
 }
 
 export class GoogleSheetsService {
   private proxyUrl = import.meta.env.VITE_SHEETS_PROXY_URL || '/api/sheets-proxy';
-  private proxySecret = import.meta.env.VITE_SHEETS_PROXY_SECRET || '';
 
   hasToken(): boolean {
-    return true;
+    return Boolean(auth.currentUser);
   }
 
   async authorize(): Promise<string> {
-    return 'vercel-sheets-proxy';
+    const user = auth.currentUser;
+    if (!user) throw new Error('Sesi login diperlukan untuk mengakses data');
+    return user.getIdToken();
   }
 
   private async call(payload: SheetsProxyPayload) {
+    const token = await this.authorize();
     const response = await fetch(this.proxyUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(this.proxySecret ? { 'X-Sheets-Proxy-Secret': this.proxySecret } : {}),
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        ...payload,
-        ...(this.proxySecret ? { secret: this.proxySecret } : {}),
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json().catch(() => null);

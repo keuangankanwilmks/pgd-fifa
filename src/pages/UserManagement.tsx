@@ -1,10 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Users, UserPlus, Edit2, Trash2, Shield, User as UserIcon, CheckCircle, XCircle, Search, KeyRound, Save, Plus } from 'lucide-react';
 import { User } from '../App';
-import { db, handleFirestoreError, OperationType, firebaseConfig } from '../firebase';
-import { doc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, setPersistence, inMemoryPersistence } from 'firebase/auth';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import { doc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
@@ -26,6 +24,7 @@ import {
   type DatabasePermissionTargetId,
   type RoleDatabasePermissionMap,
 } from '../constants/databasePermissions';
+import { userAdminService } from '../services/userAdminService';
 
 interface UserManagementProps {
   users: User[];
@@ -36,6 +35,8 @@ interface UserManagementProps {
   roleAccessMap: RoleAccessMap;
   roleDatabasePermissionMap: RoleDatabasePermissionMap;
 }
+
+type UserFormData = Partial<User> & { password?: string };
 
 const configsToDraft = (configs: RoleAccessConfig[]) => (
   configs.reduce<Record<string, string[]>>((acc, config) => {
@@ -57,6 +58,7 @@ const sanitizeRoleId = (value: string) => (
 
 export function UserManagement({
   users,
+  setUsers,
   currentUser,
   setIsLoading,
   setLoadingMessage,
@@ -77,7 +79,12 @@ export function UserManagement({
   const [isSavingAccess, setIsSavingAccess] = useState(false);
   const { addNotification } = useNotifications();
 
-  const [formData, setFormData] = useState<Partial<User>>({
+  const refreshUsers = async () => {
+    const result = await userAdminService.list();
+    setUsers(Array.isArray(result?.users) ? result.users : []);
+  };
+
+  const [formData, setFormData] = useState<UserFormData>({
     nik: '',
     name: '',
     role: 'user',
@@ -105,6 +112,17 @@ export function UserManagement({
     });
 
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    void userAdminService.purgeLegacyPasswords()
+      .then(async result => {
+        if (Number(result?.removed || 0) > 0) {
+          toast.success(`${result.removed} field password lama telah dihapus dari Firestore`);
+        }
+        await refreshUsers();
+      })
+      .catch(error => console.error('Legacy password cleanup error:', error));
   }, []);
 
   useEffect(() => {
@@ -162,29 +180,18 @@ export function UserManagement({
 
     try {
       if (editingUser) {
-        const userRef = doc(db, 'users', editingUser.uid || editingUser.nik);
-        const updateData: any = {
+        if (!editingUser.uid) throw new Error('UID user tidak ditemukan');
+        await userAdminService.update({
+          uid: editingUser.uid,
           name: formData.name,
           role: formData.role,
           status: formData.status,
-        };
-        if (formData.password) {
-          updateData.password = formData.password;
-        }
-        await updateDoc(userRef, updateData);
+          password: formData.password || '',
+        });
+        await refreshUsers();
         toast.success('User berhasil diupdate');
         addNotification('User berhasil diupdate', `Data user ${formData.name} berhasil diperbarui.`, 'success');
       } else {
-        const q = query(collection(db, 'users'), where('nik', '==', formData.nik));
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-          setAlertMessage('NIK sudah terdaftar!');
-          setIsLoading(false);
-          return;
-        }
-
-        let uid = '';
-        const email = `${formData.nik}@fifa.local`;
         const password = formData.password || '123456';
 
         if (password.length < 6) {
@@ -193,44 +200,21 @@ export function UserManagement({
           return;
         }
 
-        try {
-          const secondaryApp = getApps().find(app => app.name === 'SecondaryApp') || initializeApp(firebaseConfig, 'SecondaryApp');
-          const secondaryAuth = getAuth(secondaryApp);
-          await setPersistence(secondaryAuth, inMemoryPersistence);
-          const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-          uid = userCredential.user.uid;
-        } catch (authError: any) {
-          console.error('Auth creation error:', authError);
-          if (authError.code === 'auth/operation-not-allowed') {
-            setAlertMessage('Fitur Login Email/Password belum diaktifkan di Firebase Console. Silakan aktifkan di menu Authentication > Sign-in method.');
-            setIsLoading(false);
-            return;
-          }
-          if (authError.code === 'auth/email-already-in-use') {
-            setAlertMessage('Email/NIK sudah terdaftar di sistem autentikasi.');
-            setIsLoading(false);
-            return;
-          }
-          throw authError;
-        }
-
-        const newUser: User = {
-          uid,
+        await userAdminService.create({
           nik: formData.nik!,
           name: formData.name!,
           role: formData.role || 'user',
-          status: formData.status as 'active' | 'inactive',
-          email,
-        };
-
-        await setDoc(doc(db, 'users', uid), newUser);
+          status: formData.status || 'active',
+          password,
+        });
+        await refreshUsers();
         toast.success('User berhasil ditambahkan');
         addNotification('User baru ditambahkan', `User ${formData.name} berhasil ditambahkan ke sistem.`, 'success');
       }
       handleCloseModal();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving user:', error);
-      toast.error('Gagal menyimpan data user');
+      setAlertMessage(error?.message || 'Gagal menyimpan data user');
     } finally {
       setIsLoading(false);
     }
@@ -257,12 +241,14 @@ export function UserManagement({
     setDeleteConfirmUser(null);
 
     try {
-      await deleteDoc(doc(db, 'users', userToDelete.uid || userToDelete.nik));
+      if (!userToDelete.uid) throw new Error('UID user tidak ditemukan');
+      await userAdminService.delete(userToDelete.uid);
+      await refreshUsers();
       toast.success('User berhasil dihapus');
       addNotification('User berhasil dihapus', `User ${userToDelete.name} telah dihapus dari sistem.`, 'success');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting user:', error);
-      toast.error('Gagal menghapus user');
+      toast.error(error?.message || 'Gagal menghapus user');
     } finally {
       setIsLoading(false);
     }

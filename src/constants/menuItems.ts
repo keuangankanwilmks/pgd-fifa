@@ -33,6 +33,7 @@ export const BASE_MENU_ITEMS: MenuItem[] = [
     label: 'Anggaran',
     icon: WalletCards,
     subItems: [
+      { id: 'input-dropping', label: 'Input Dropping' },
       { id: 'data-alokasi', label: 'Data Alokasi' },
     ],
   },

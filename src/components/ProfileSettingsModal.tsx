@@ -8,11 +8,11 @@ import {
   updatePassword,
   updateProfile,
 } from 'firebase/auth';
-import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { User } from '../App';
-import { auth, db } from '../firebase';
+import { auth } from '../firebase';
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { AnimatedModal } from './AnimatedModal';
+import { userAdminService } from '../services/userAdminService';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -108,13 +108,6 @@ export function ProfileSettingsModal({ isOpen, currentUser, onClose, onUpdated }
       const credential = EmailAuthProvider.credential(firebaseUser.email || currentUser.email || nextEmail, formData.currentPassword);
       await reauthenticateWithCredential(firebaseUser, credential);
 
-      const duplicateNik = await getDocs(query(collection(db, 'users'), where('nik', '==', nextNik)));
-      const hasDuplicateNik = duplicateNik.docs.some(item => item.id !== firebaseUser.uid);
-      if (hasDuplicateNik) {
-        toast.error('NIK sudah digunakan oleh user lain');
-        return;
-      }
-
       if (nextEmail !== (firebaseUser.email || '')) {
         await updateEmail(firebaseUser, nextEmail);
       }
@@ -133,11 +126,10 @@ export function ProfileSettingsModal({ isOpen, currentUser, onClose, onUpdated }
         email: nextEmail,
       };
 
-      await updateDoc(doc(db, 'users', firebaseUser.uid), {
+      await userAdminService.updateProfile({
         nik: nextNik,
         name: nextName,
         email: nextEmail,
-        uid: firebaseUser.uid,
       });
 
       onUpdated(updatedUser);

@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { Scale, Lock, User as UserIcon, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { User } from '../App';
 import toast from 'react-hot-toast';
-import { auth, db } from '../firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { auth } from '../firebase';
+import { signInWithCustomToken } from 'firebase/auth';
 
 import { Logo } from '../components/Logo';
 
@@ -20,64 +19,30 @@ export function Login({ onLogin, users }: LoginProps) {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleGuestLogin = () => {
-    const guestUser: User = {
-      nik: 'guest',
-      name: 'Guest',
-      role: 'guest',
-      status: 'active',
-      email: 'guest@fifa.local'
-    };
-    onLogin(guestUser);
-    toast.success('Masuk sebagai Tamu');
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-      // 1. Check Firestore first for the user record
-      const q = query(collection(db, 'users'), where('nik', '==', nik), limit(1));
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        setError('NIK tidak terdaftar.');
-        toast.error('NIK tidak terdaftar.');
-        return;
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nik: nik.trim(), password }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.customToken || !data?.user) {
+        throw new Error(data?.error || 'NIK atau password tidak valid');
       }
 
-      const userData = querySnapshot.docs[0].data() as User;
-      
-      if (userData.status === 'inactive') {
-        setError('Akun Anda tidak aktif. Silakan hubungi Administrator.');
-        toast.error('Akun Anda tidak aktif.');
-        return;
-      }
-
-      // 2. Attempt Firebase Auth login
-      // Virtual email: nik@fifa.local
-      const email = userData.email || `${nik}@fifa.local`;
-      
-      try {
-        await signInWithEmailAndPassword(auth, email, password);
-        toast.success(`Selamat datang, ${userData.name}!`);
-        onLogin(userData);
-      } catch (authError: any) {
-        console.error('Auth login error:', authError);
-        if (authError.code === 'auth/wrong-password' || authError.code === 'auth/user-not-found' || authError.code === 'auth/invalid-credential') {
-          setError('Password salah.');
-          toast.error('Password salah.');
-        } else {
-          setError('Gagal masuk ke sistem autentikasi.');
-          toast.error('Gagal masuk ke sistem autentikasi.');
-        }
-      }
+      await signInWithCustomToken(auth, data.customToken);
+      toast.success(`Selamat datang, ${data.user.name}!`);
+      onLogin(data.user as User);
     } catch (error: any) {
       console.error('Login error:', error);
-      setError('Terjadi kesalahan saat masuk.');
-      toast.error('Terjadi kesalahan saat masuk.');
+      const message = error?.message || 'Terjadi kesalahan saat masuk.';
+      setError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -186,17 +151,6 @@ export function Login({ onLogin, users }: LoginProps) {
               {!isLoading && <ArrowRight className="w-4 h-4" />}
             </button>
           </form>
-
-          <div className="mt-6">
-            <button
-              onClick={handleGuestLogin}
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-200 rounded-xl shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#009B4F] transition-all disabled:opacity-50"
-            >
-              <UserIcon className="w-5 h-5 text-gray-400" />
-              Masuk sebagai Tamu
-            </button>
-          </div>
 
           <div className="mt-8 pt-6 border-t border-gray-100 text-center">
             <p className="text-sm text-gray-500">

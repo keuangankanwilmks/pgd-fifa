@@ -8,6 +8,7 @@ import { blastTemplateService, defaultAlokasiBlastEmailTemplate, defaultAlokasiB
 import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { AnimatedModal } from '../components/AnimatedModal';
 import { uploadExcelConfigService, type UploadExcelConfigMap } from '../services/uploadExcelConfigService';
+import { mataAnggaranSeed } from '../data/mataAnggaranSeed';
 
 interface AppLink {
   id: string;
@@ -22,7 +23,7 @@ interface SettingsProps {
 }
 
 interface DataEditorConfig {
-  collectionName: 'cabang' | 'norek_mapping' | 'gl_bank';
+  collectionName: 'cabang' | 'norek_mapping' | 'gl_bank' | 'mata_anggaran' | 'penandatangan';
   title: string;
   description: string;
   defaultColumns: string[];
@@ -382,6 +383,13 @@ export function Settings({ type }: SettingsProps) {
     return Array.from(new Set([...defaultColumns, ...dynamicColumns]));
   };
 
+  const loadMataAnggaranSeed = (message = true) => {
+    const seedRows = mataAnggaranSeed.map(item => ({ ...item, isNew: true }));
+    setDataEditorRows(seedRows);
+    setDataEditorColumns(['mataAnggaran', 'kodeActivity']);
+    if (message) toast('138 data awal Mata Anggaran dimuat. Klik Simpan Semua untuk menyimpan ke Firebase.');
+  };
+
   const openDataEditor = async (config: DataEditorConfig) => {
     setDataEditorConfig(config);
     setIsDataEditorLoading(true);
@@ -391,15 +399,45 @@ export function Settings({ type }: SettingsProps) {
 
     try {
       const snapshot = await getDocs(collection(db, config.collectionName));
-      const rows = snapshot.docs
+      let rows = snapshot.docs
         .map(item => ({ id: item.id, ...item.data() } as DataEditorRow))
         .sort((a, b) => String(a.nama || a.namaCabang || a.keterangan || a.id).localeCompare(String(b.nama || b.namaCabang || b.keterangan || b.id)));
+
+      if (!rows.length && config.collectionName === 'mata_anggaran') {
+        rows = mataAnggaranSeed.map(item => ({ ...item, isNew: true }));
+        toast('138 data awal Mata Anggaran dimuat. Klik Simpan Semua untuk menyimpan ke Firebase.');
+      }
+
+      if (!rows.length && config.collectionName === 'penandatangan') {
+        rows = [{
+          id: 'input_dropping',
+          disetujuiOleh: '',
+          diperiksaOleh: '',
+          dibuatOleh: '',
+          isNew: true,
+        }];
+      }
 
       setDataEditorRows(rows);
       setDataEditorColumns(collectColumns(rows, config.defaultColumns));
     } catch (error) {
       console.error('Data editor load error:', error);
-      handleFirestoreError(error, OperationType.LIST, config.collectionName);
+      if (config.collectionName === 'mata_anggaran') {
+        loadMataAnggaranSeed(false);
+        toast.error('Firebase mata_anggaran belum dapat dibaca. Data awal tetap ditampilkan; periksa Firestore Rules sebelum menyimpan.');
+      } else if (config.collectionName === 'penandatangan') {
+        setDataEditorRows([{
+          id: 'input_dropping',
+          disetujuiOleh: '',
+          diperiksaOleh: '',
+          dibuatOleh: '',
+          isNew: true,
+        }]);
+        setDataEditorColumns(['disetujuiOleh', 'diperiksaOleh', 'dibuatOleh']);
+        toast.error('Firebase penandatangan belum dapat dibaca. Periksa Firestore Rules sebelum menyimpan.');
+      } else {
+        handleFirestoreError(error, OperationType.LIST, config.collectionName);
+      }
     } finally {
       setIsDataEditorLoading(false);
     }
@@ -853,7 +891,7 @@ export function Settings({ type }: SettingsProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
               <h3 className="font-semibold text-gray-800 mb-2">Data Cabang & Area</h3>
               <p className="text-sm text-gray-500 mb-4">
@@ -910,6 +948,44 @@ export function Settings({ type }: SettingsProps) {
                 Edit Data GL Bank
               </button>
             </div>
+
+            <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50">
+              <h3 className="font-semibold text-gray-800 mb-2">Data Mata Anggaran</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Edit relasi Mata Anggaran dan Kode Activity untuk pilihan Input Dropping Direct.
+              </p>
+              <button
+                onClick={() => openDataEditor({
+                  collectionName: 'mata_anggaran',
+                  title: 'Edit Data Mata Anggaran',
+                  description: 'Data Firebase collection mata_anggaran',
+                  defaultColumns: ['mataAnggaran', 'kodeActivity'],
+                })}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Table2 className="w-4 h-4" />
+                Edit Data Mata Anggaran
+              </button>
+            </div>
+
+            <div className="p-4 border border-gray-100 rounded-xl bg-gray-50/50 md:col-span-2">
+              <h3 className="font-semibold text-gray-800 mb-2">Data Penandatangan</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Atur nama Disetujui Oleh, Diperiksa Oleh, dan Dibuat Oleh pada PDF Input Dropping.
+              </p>
+              <button
+                onClick={() => openDataEditor({
+                  collectionName: 'penandatangan',
+                  title: 'Edit Data Penandatangan',
+                  description: 'Data Firebase collection penandatangan',
+                  defaultColumns: ['disetujuiOleh', 'diperiksaOleh', 'dibuatOleh'],
+                })}
+                className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Table2 className="w-4 h-4" />
+                Edit Data Penandatangan
+              </button>
+            </div>
           </div>
         </div>
 
@@ -944,6 +1020,15 @@ export function Settings({ type }: SettingsProps) {
                     <Plus className="h-4 w-4" />
                     Tambah Baris
                   </button>
+                  {dataEditorConfig.collectionName === 'mata_anggaran' && (
+                    <button
+                      onClick={() => loadMataAnggaranSeed()}
+                      className="flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-amber-700"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                      Muat Data Awal
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setEditorConfirmAction('saveAll');
